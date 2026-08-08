@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "veil-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "/Users/odeyalexander/Desktop/current/Web/Veil",
+        "run",
+        "dev",
+        "--",
+        "-p",
+        "3007"
+      ],
+      "port": 3007
+    }
+  ]
+}

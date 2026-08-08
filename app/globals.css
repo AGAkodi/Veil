@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+:root {
+  /* Palette sampled directly from design.jpg */
+  --cream: #e7e5d9;
+  --paper: #f4f1e8;
+  --ink: #101a1f;
+  --ink-soft: #4f5049;
+  --rule: #d3d0c2;
+  --sage: #c3c9bf;
+  --sage-deep: #6e7a70;
+  --accent: #ea6b3e;
+}
+
+@theme inline {
+  --color-cream: var(--cream);
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-rule: var(--rule);
+  --color-sage: var(--sage);
+  --color-sage-deep: var(--sage-deep);
+  --color-accent: var(--accent);
+
+  --font-serif: var(--font-newsreader);
+  --font-sans: var(--font-inter);
+}
+
+body {
+  background: var(--cream);
+  color: var(--ink);
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The small-caps letterspaced eyebrow used above every section headline. */
+.eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--sage-deep);
+}
+
+/* Display headlines: tight leading, optical sizing on, serif italic for accents. */
+.display {
+  font-family: var(--font-newsreader), ui-serif, Georgia, serif;
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+
+.display-accent {
+  color: var(--accent);
+  font-style: italic;
+  font-weight: 500;
+}
+
+/* Pull line — the orange italic serif sentence that closes a passage. */
+.pull {
+  font-family: var(--font-newsreader), ui-serif, Georgia, serif;
+  font-style: italic;
+  color: var(--accent);
+  font-size: 1.0625rem;
+  line-height: 1.5;
+}
+
+.prose-body p {
+  color: var(--ink-soft);
+  font-size: 0.9375rem;
+  line-height: 1.75;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .link-arrow svg {
+    transition: transform 180ms ease;
+  }
+  .link-arrow:hover svg {
+    transform: translate(2px, -2px);
+  }
+}

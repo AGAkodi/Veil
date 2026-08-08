@@ -1,0 +1,9 @@
+{
+  "program": "veil.aleo",
+  "version": "0.1.0",
+  "description": "",
+  "license": "MIT",
+  "leo": "4.4.1",
+  "dependencies": null,
+  "dev_dependencies": null
+}
