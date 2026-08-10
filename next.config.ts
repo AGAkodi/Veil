@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
+  serverExternalPackages: ["@provablehq/sdk", "@provablehq/wasm"],
 };
 
 export default nextConfig;

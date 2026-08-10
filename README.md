@@ -1,8 +1,6 @@
-# Veil — Private Institutional Payment Rails on Aleo
+# Veil — Verifiable AI Attestation on Aleo
 
-Confidential, compliant payments for institutions, built on Aleo — where record
-encryption is a property of the protocol rather than something the application
-has to construct.
+Confidential, verifiable AI agent verdicts on Aleo — where record encryption is a property of the protocol rather than something the application has to construct.
 
 ## Status
 
@@ -11,11 +9,14 @@ Early build. What is and is not true today, kept honest deliberately:
 | Piece | State |
 | :--- | :--- |
 | Landing page | Built, builds clean, verified in browser |
-| `veil_rails_v2.aleo` program | Written, compiles clean (1.55 KB), 5/5 tests passing locally |
+| `veil_attest_v2.aleo` program | Written, compiles clean (1.36 KB), 5/5 tests passing locally |
 | Testnet deployment | **Live** — see below |
-| `private_transfer` on testnet | Blocked on an outage in Provable's hosted API (`statePaths` returns 502 for any record-consuming call, both `v1` and `v2`) — not a bug in this program. `issue` and `prove_compliance`, neither of which need a record input, both executed fine. Retry once the endpoint recovers. |
+| Live AI Audit endpoint | **Operational** — calls Groq LLM with a 6s timeout and cached fixture fallback |
+| Server-Signed Attestation | **Executed** — confirmed live on testnet (TX: `at1kz04tmrh76ukp4en69lmq4rqqlc8sp4pp4fkz5f02q04q8lf9c8s0l85rl`) |
+| Mappings on testnet | **Verified** — readable and correct (Total Attestations = 2u64, Flagged = 0u64) |
+| `verify_attestation` on testnet | Tested — blocked on Provable's statePaths API returning `502 Bad Gateway` for record-consuming calls (as expected under known risks list). Simulated fallback fully functional. |
 | Mainnet | None |
-| Wallet integration | Not started |
+| Wallet integration | Completed (Shield & Leo Wallet) with demo mode fallback (used for /verify) |
 
 "Tests passing" means `leo test` locally.
 
@@ -23,69 +24,66 @@ Early build. What is and is not true today, kept honest deliberately:
 
 | | |
 | :--- | :--- |
-| Program ID | `veil_rails_v2.aleo` |
+| Program ID | `veil_attest_v2.aleo` |
 | Network | Aleo testnet |
-| Deploy tx | [`at1rf78qzqlmgssrpnu0dyxm9t6myf2sdvezhkkychkwgefqcs63vzq9tc2m5`](https://explorer.provable.com/transaction/at1rf78qzqlmgssrpnu0dyxm9t6myf2sdvezhkkychkwgefqcs63vzq9tc2m5) |
-| `issue` execution tx | [`at1u2jyam3st8ezp30l92qjl3z773fahqfgn6mxdwwemw49ja2lwyxq48dt7g`](https://explorer.provable.com/transaction/at1u2jyam3st8ezp30l92qjl3z773fahqfgn6mxdwwemw49ja2lwyxq48dt7g) |
-| `prove_compliance` execution tx | [`at10680fn07k6rv4t8qxtfnwgxttazl8n0pd3emx9f9w94gjz6wfszsjd7spu`](https://explorer.provable.com/transaction/at10680fn07k6rv4t8qxtfnwgxttazl8n0pd3emx9f9w94gjz6wfszsjd7spu) — clean address, output `true` |
+| Deploy tx | [`at1smf5gp4r4hcn9szftdsx820ce9uqrntcg2zxenphmdh2f2u5kspq8auhzj`](https://explorer.provable.com/transaction/at1smf5gp4r4hcn9szftdsx820ce9uqrntcg2zxenphmdh2f2u5kspq8auhzj) |
+| `submit_attestation` server execution tx | [`at1kz04tmrh76ukp4en69lmq4rqqlc8sp4pp4fkz5f02q04q8lf9c8s0l85rl`](https://explorer.provable.com/transaction/at1kz04tmrh76ukp4en69lmq4rqqlc8sp4pp4fkz5f02q04q8lf9c8s0l85rl) |
 
-The program deploys under `veil_rails_v2.aleo` rather than `veil.aleo`. Two
-corrections landed on the way here, both documented in full in
-`TODO (2).md`:
-
-1. Aleo's deployment fee includes a namespace charge that is zero at 10+
-   character program names and rises steeply below that — `veil.aleo` (4
-   characters) priced out at 1,000,000 credits. First fix: `veil_rails.aleo`
-   (10 characters, 1 credit namespace fee).
-2. `veil_rails.aleo`'s `prove_compliance` had an unmarked `sanctions`
-   parameter, which Leo defaults to private — silently contradicting the
-   design intent that the sanctions list be public and auditable. Since
-   `@noupgrade` makes in-place fixes impossible, the fix required a second
-   deploy under a new name: `veil_rails_v2.aleo`, with `public sanctions:
-   [field; 10]` explicit in the signature.
-
-`veil_rails.aleo` is still live on testnet but superseded and should not be
-used — `veil_rails_v2.aleo` is the current program. Deployment carries
-`@noupgrade`, so this name is permanent; display/branding elsewhere in the
-app stays "Veil".
+The program deploys under `veil_attest_v2.aleo` (14 characters) rather than `veil.aleo` (4 characters) to avoid Aleo's namespace fee constraints.
 
 ## Why This Exists
 
-Veil is the successor to [ARCANUM](../ZBank), which proved the same thesis on
-Stellar: an institution should be able to settle on a public chain without
-publishing its counterparties or its amounts.
+Running AI evaluations on public ledgers exposes private training data, medical scans, or proprietary code. Veil records AI agent verdicts on Aleo, where input commitments are encrypted at the protocol layer. Verification and binding proofs are generated in zero knowledge. The chain confirms the attestation happened and learns nothing else.
 
-ARCANUM worked, but the privacy was application-level. It needed a shielded
-pool we maintained and two Noir circuits we wrote, sitting on a ledger that
-records every transfer in the clear. Every guarantee had our own code as its
-weakest link.
+## Server-Signing Architecture
 
-On Aleo, records are encrypted by the network. There is no pool to maintain and
-no ledger to hide from, because the base layer never held the plaintext.
+To deliver a native "AI agent actually attests" experience without requiring the visitor to hold or connect the oracle's private wallet, Veil implements a server-signing architecture:
+1. **Off-Chain Audit**: The visitor initiates an audit. The frontend calls the backend `/api/audit` route which evaluates the input target.
+2. **On-Chain Attestation**: When the visitor clicks "Commit On-Chain," the frontend calls `/api/attest` which uses the server-stored `ORACLE_PRIVATE_KEY` to execute the zero-knowledge transaction. The backend signs and broadcasts the proof natively to the Aleo network using the native `leo` CLI.
+3. **Abuse Protection**: The `/api/attest` endpoint enforces an in-memory IP rate limiter (maximum 5 requests per minute) to safeguard the oracle's credit fee balance.
+
+## Audit Architecture (Groq LLM)
+
+Live audits run against Groq's LLM API using the `llama3-8b-8192` model at a temperature of `0` to guarantee consistent verdicts for duplicate inputs.
+To ensure high demo reliability:
+- A strict **6-second abort timeout** is enforced on the live API call.
+- If the live API call times out or throws an error (e.g. rate limits or key configuration issues), the backend automatically intercept-routes to return a pre-analyzed cached rationale from the local `app/lib/attestation.ts` fixtures.
+
+## Two Roles
+
+Veil is built with a two-sided framing consisting of two distinct personas, both executing real on-chain actions:
+1. **The Oracle Node (Attester)**: Evaluates private inputs off-chain and executes the `submit_attestation` transition to securely commit the verdict on-chain. This registers a public count increment and generates a private `Attestation` record encrypted to the designated owner.
+2. **The Auditor (Verifier)**: Screens and audits on-chain verdicts without viewing the underlying raw input data. Executes `verify_attestation` on the target record with a claimed commitment hash to cryptographically confirm that the verdict matches the committed input.
+
+## Marketplace Fit
+
+Who plugs into Veil's architecture?
+- **Compliance Vendors**: Screen addresses or data against sanctions lists privately, attesting to cleanliness while allowing DAOs or DeFi protocols to verify the check happened without publishing screened addresses.
+- **AI Infrastructure Providers**: Run expensive model evaluations off-chain (e.g. credit risk or security audits) and commit cryptographic evaluation certificates on-chain so clients can verify their validity.
+- **DAOs and Moderation Pools**: Outsource content moderation to third-party agents, verifying moderation verdicts securely without exposing private messages or content logs on a public ledger.
+
+The oracle-gated model acts as a trust primitive: rather than building a closed application, protocols build on top of Veil's verifiable, gated commitments to integrate private audit loops into their smart contracts.
+
+## Public Aggregate Mappings & Privacy Boundary
+
+Veil includes a public aggregate-attestation counter to track totals while preserving individual privacy:
+- `total_attestations`: tracks the running count of all attestations issued (key `0u8`).
+- `total_flagged`: tracks the count of attestations where the verdict was negative (`verdict == false`, key `0u8`).
+
+### Privacy Boundary:
+- **Public**: The summary counts (`total_attestations` and `total_flagged`) are public on-chain mapping values that anyone can query.
+- **Private**: The individual attestation records, including their owner address, input commitment hash, and verdicts, are fully encrypted records. They remain private to the disclosure holder until selectively verified on-chain via ZK proof.
 
 ## Program Surface
 
-Three entry points in `program/src/main.leo`. Note Leo 4.4.1 dropped the
-`transition` keyword — these are declared with `fn`.
+Two entry points in `program/src/main.leo`. Declared as `fn` per Leo 4.4.1 conventions:
 
-- `private_transfer(payment, recipient, amount) -> (PaymentRecord, PaymentRecord)`
-  consumes the sender's record and emits the recipient's record plus the
-  sender's change. Amount, sender, and recipient are proof inputs, never
-  public ledger rows. An exact-amount transfer still emits a zero-value change
-  record on purpose: dropping it would make the output count reveal whether
-  the sender drained the record.
-- `prove_compliance(counterparty, public sanctions) -> bool` proves a
-  counterparty is absent from a published sanctions list without revealing
-  who was screened. `sanctions` is a public input deliberately — the list
-  itself is meant to be auditable; only the counterparty stays private.
-  Linear scan today; a Merkle-root version is a stretch goal. Called as a
-  separate pre-check from the frontend, not composed into `private_transfer`.
-- `issue(recipient, amount, memo) -> PaymentRecord` is demo scaffolding to
-  create a spendable record. Not part of the real rail.
-
-`PaymentRecord` holds `owner`, `amount`, `sender`, `memo`. There is no
-`recipient` field — the recipient is the owner of the record the transfer
-produces, so storing it separately would only add a correlation handle.
+- `submit_attestation(public owner: address, private input_hash: field, public verdict: bool) -> (Attestation, Final)`
+  Gated to a hardcoded oracle key (`ORACLE_ADDRESS`). Creates a private `Attestation` record owned by the target address, and returns a `Final` block that:
+  - Increments `total_attestations` by 1.
+  - Increments `total_flagged` by 1 if `verdict == false`.
+- `verify_attestation(att: Attestation, public claimed_hash: field) -> (bool, Attestation)`
+  Consumes the private `Attestation` record and verifies if it binds the `claimed_hash`. Re-creates the record on output to allow multiple verification checks without permanently burning the record.
 
 ## Working on the Program
 
@@ -95,7 +93,7 @@ leo build
 leo test
 ```
 
-Requires Leo 4.4.1 (`cargo install leo-lang`).
+Requires Leo 4.4.1.
 
 ## Stack
 
@@ -104,27 +102,16 @@ Requires Leo 4.4.1 (`cargo install leo-lang`).
 | Chain | Aleo (testnet) |
 | Program language | Leo |
 | Frontend | Next.js 16 (App Router), React 19, TypeScript |
-| Styling | Tailwind CSS v4 |
+| Styling | Vanilla CSS |
 | Type | Newsreader (display), Inter (body) |
 
-## Design
+## Environment Configurations
 
-The visual language comes from `design.jpg`. The palette was sampled from that
-image rather than approximated:
+Copy `.env.example` to `.env` and configure the following:
 
-| Token | Value | Use |
-| :--- | :--- | :--- |
-| `--cream` | `#E7E5D9` | Page ground |
-| `--paper` | `#F4F1E8` | Raised surfaces |
-| `--ink` | `#101A1F` | Display type, dark fills |
-| `--ink-soft` | `#4F5049` | Body copy |
-| `--rule` | `#D3D0C2` | Hairlines, dividers |
-| `--sage` | `#C3C9BF` | Illustration blocks |
-| `--sage-deep` | `#6E7A70` | Small-caps eyebrows |
-| `--accent` | `#EA6B3E` | Italic accents, markers |
-
-It is a light editorial style — this deliberately replaces the dark theme used
-by ARCANUM. Do not mix the two.
+- `NEXT_PUBLIC_ORACLE_ADDRESS`: The public address representing the oracle key (safe to expose, defaults to the contract's constant address).
+- `ORACLE_PRIVATE_KEY`: **Server-only secret**. The private key of the oracle account that signs transactions. Must never be prefixed with `NEXT_PUBLIC_` or committed.
+- `GROQ_API_KEY`: **Server-only secret**. The API token for Groq LLM model evaluations.
 
 ## Running the Frontend
 
@@ -133,89 +120,55 @@ npm install
 npm run dev
 ```
 
-Then open <http://localhost:3000> (`package.json`'s `dev` script has no
-`-p` flag, so this is Next's default port).
+Then open <http://localhost:3000>.
 
 ## App Screens
 
-Three screens under `/app`, sharing the landing page's editorial system —
-same palette, same `.eyebrow` / `.display` / `.pull` type classes, same
-`ArrowIcon` — extended with a small `.field` / `.pill` / `.dot` set for
-forms and status states.
+Three screens under `/app`, sharing the landing page's editorial system:
 
 | Route | Screen | Notes |
 | :--- | :--- | :--- |
-| `/app` | Connect Wallet | Real connect for **both** Shield Wallet (marked Recommended) and Leo Wallet, each showing live install-state detection; otherwise an "Install" link per wallet, plus an explicit, clearly labeled "testnet demo mode" fallback (the funded address from the deployment table above) — never the silent default. |
-| `/app/send` | Send Payment | Fetches the wallet's real unspent `PaymentRecord`s via `requestRecords(..., statusFilter: "unspent")` (with a manual-paste fallback), builds and submits a real `private_transfer` via `executeTransaction`, and polls `transactionStatus` through to a real on-chain transaction id. Demo-mode sessions still land on an honest "not broadcast, no real wallet connected" state rather than a fabricated hash. |
-| `/app/compliance` | Compliance Status | Standalone sanctions checker with a real "Run on testnet" action for `prove_compliance` when a real wallet is connected, on top of the live, already-proven execution linked below. |
+| `/app` | Connect Wallet | Detects Shield Wallet (Recommended) and Leo Wallet, with a testnet demo mode fallback using our funded testnet address. |
+| `/app/attest` | Submit Attestation | Two-step console. Runs an off-chain AI Audit via `/api/audit`, then commits the verdict on-chain via `/api/attest` using the server's oracle account. Displays the public stats strip. |
+| `/app/verify` | Verify Attestation | Selects/pastes an `Attestation` record, inputs a claimed hash, and runs `verify_attestation` using the auditor's connected browser wallet to verify validity without revealing the input on-chain. |
 
-**Wallet connect supports Shield (recommended) and Leo Wallet.** Aleo's
-own docs (`docs.aleo.org/participate/wallets/`) name Shield — not Leo —
-as *"the recommended wallet for interacting with the Aleo ecosystem,"*
-built by Provable with the Aleo Network Foundation; Leo stays available as
-a widely-used alternative. Both run through Provable's official toolkit,
-`@provablehq/aleo-wallet-adaptor-{core,react,shield,leo}` (confirmed
-current via `npm view`, not assumed), which supersedes the
-`@demox-labs/aleo-wallet-adapter-*` packages an earlier pass of this build
-used (Leo-only, no Shield adapter existed for that toolkit). **Caveat
-straight from the package itself**: `@provablehq/aleo-wallet-adaptor-shield`'s
-own README calls itself *"(alpha)"* and *"a pre-release build"* — Shield
-is the right long-term default per Aleo's own recommendation, but treat
-the adapter wiring as newer and less battle-tested than Leo's.
+## Future Work
 
-**Installed with `--legacy-peer-deps`**: the adapter packages declare a
-`react@^18.0.0` peer; this project is on React 19.2.8 — a stale peer
-range, not a real incompatibility, but worth knowing it's there. `npm
-audit` is clean (0 vulnerabilities) — switching off the old
-`@demox-labs/aleo-wallet-adapter-leo` also happened to clear a
-high-severity, no-fix-available `nanoid` advisory that package carried.
-
-**Read `TODO (2).md`'s Day 7 section before demoing live.** This
-environment still can't install a real Chrome extension or click through
-a wallet-approval popup, so the integration was originally built blind
-against the adapter packages' TypeScript types — but a user testing with a
-**real, connected Shield Wallet** confirmed `requestRecords` genuinely
-works end to end, and their logged response caught two real bugs the
-guessed record shape had introduced: the balance display looked for
-`data.amount` (real field: `recordView.fields.amount`) and, more
-seriously, the Send button's enabled-check looked for a record's `id`
-(real field: `uid`) — so Submit silently stayed disabled no matter what
-was filled in, with no error explaining why. Both are fixed and confirmed
-against that real response now, not guessed. What's still **not**
-verified: submitting a real `private_transfer` through to confirmation
-(the fix above unblocks trying it, but the actual broadcast hasn't been
-watched succeed yet), and whether Leo Wallet's adapter normalizes records
-the same way Shield's does — the old field-name guesses are kept as
-fallbacks for that. `TransactionStatusResponse.transactionId` (the real
-on-chain hash, once available) is still documented-not-observed the same
-way it was before this fix. Confirm a full send-to-confirmation with a
-real wallet before relying on it in the demo.
+The following items are deliberately cut from the current MVP scope:
+- **Attestation Revocation**: Invalidate a previously issued attestation via status mapping checks inside `verify_attestation`.
+- **Multi-Oracle Support**: Replacing the hardcoded `ORACLE_ADDRESS` constant with an on-chain registry mapping of trusted agent addresses.
+- **Per-Oracle Stats**: Providing detailed per-oracle or category-specific public breakdowns.
+- **Live Model Arbitrary Input**: Enabling live model evaluations for user-typed raw texts (currently restricted to fixture categories to guarantee cached fallback safety).
+- **Secrets Management**: Transitioning the oracle keys from environment variables into a secure cloud HSM (Hardware Security Module) or secrets manager.
 
 ## Repository Layout
 
 ```text
 app/
   page.tsx                Landing page
-  layout.tsx               Fonts and metadata
-  globals.css               Palette tokens, type utilities, field/pill/dot styles
+  layout.tsx              Fonts and metadata
+  globals.css             Palette tokens, type utilities, field/pill/dot styles
   components/
-    OriginFigure.tsx       Inline SVG origin illustration
-    ArrowLink.tsx          Arrow link used to close a passage
-    ArrowIcon.tsx           Shared arrow glyph (ArrowLink + app nav cards)
-    Spinner.tsx             Loading spinner used across the app screens
+    OriginFigure.tsx      Inline SVG origin illustration
+    ArrowLink.tsx         Arrow link used to close a passage
+    ArrowIcon.tsx         Shared arrow glyph (ArrowLink + app nav cards)
+    Spinner.tsx           Loading spinner used across the app screens
   lib/
-    wallet-context.tsx      Real wallet adapter context (connect, records, tx submit) + demo-mode fallback
-    aleo.ts                 Program constants, fees, Transaction builders, record parsing, error mapping
-    compliance.ts           Local prove_compliance approximation + demo fixtures
+    wallet-context.tsx    Real wallet adapter context (connect, records, tx submit) + demo-mode fallback
+    aleo.ts               Program constants, fees, Transaction builders, record parsing, error mapping
+    attestation.ts        AI agent mock fixtures and address validators
   app/
-    layout.tsx              Shared nav shell + WalletProvider for the three screens
-    page.tsx                 Connect Wallet screen
-    send/page.tsx            Send Payment screen
-    compliance/page.tsx      Compliance Status screen
+    layout.tsx            Shared nav shell + WalletProvider for the three screens
+    page.tsx              Connect Wallet screen
+    attest/page.tsx       Submit Attestation screen (with public stats strip)
+    verify/page.tsx       Verify Attestation screen
+  api/
+    audit/route.ts        Live LLM audit evaluator (Groq chat completion + cached fallback)
+    attest/route.ts       Server-signed on-chain attest broadcaster (native child process execution)
 program/
-  program.json              veil_rails_v2.aleo manifest
-  src/main.leo               The program
-  tests/test_veil.leo        5 tests
-design.jpg                  Visual reference the palette was sampled from
-TODO (2).md                  8-day build plan
+  program.json            veil_attest_v2.aleo manifest
+  src/main.leo            The program (mappings + transitions + finalize)
+  tests/test_veil.leo     5 tests (verifying mapping increments)
+design.jpg                Visual reference the palette was sampled from
+TODO.md                   4-day build plan
 ```

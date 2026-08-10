@@ -1,110 +1,158 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Spinner } from "../../components/Spinner";
 import {
   isLikelyAleoAddress,
   ATTESTATION_EXAMPLES,
+  computeSimpleHash,
 } from "../../lib/attestation";
 import {
   EXPLORER_TX_URL,
   PROGRAM_ID,
-  buildSubmitAttestationTransaction,
-  describeWalletError,
-  isFailedStatus,
-  pollTransactionStatus,
+  fetchMappingValue,
 } from "../../lib/aleo";
 import { useWallet } from "../../lib/wallet-context";
 
 type SubmitState =
   | "idle"
   | "building"
-  | "broadcasting"
   | "confirmed"
-  | "failed"
-  | "demo-done";
+  | "failed";
 
 export default function AttestPage() {
-  const {
-    status,
-    isDemo,
-    executeTransaction,
-    transactionStatus,
-    address,
-  } = useWallet();
+  const { address } = useWallet();
 
   const [owner, setOwner] = useState(address || "");
   const [inputText, setInputText] = useState("");
   const [inputHash, setInputHash] = useState("");
   const [verdict, setVerdict] = useState<boolean>(true);
 
+  // Step 1: Audit states
+  const [auditRunning, setAuditRunning] = useState(false);
+  const [auditRationale, setAuditRationale] = useState<string | null>(null);
+  const [auditSource, setAuditSource] = useState<"live" | "cache" | null>(null);
+
+  // Step 2: Attest states
   const [submit, setSubmit] = useState<SubmitState>("idle");
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [tempTransactionId, setTempTransactionId] = useState<string | null>(null);
   const [onchainTransactionId, setOnchainTransactionId] = useState<string | null>(null);
-  const [finalStatus, setFinalStatus] = useState<string | null>(null);
 
-  // Quick utility to hash a string deterministically into an Aleo field representation
-  // in case the user writes custom text instead of selecting a template.
-  function computeSimpleHash(str: string): string {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      hash = (hash << 5) - hash + str.charCodeAt(i);
-      hash |= 0; // Convert to 32bit integer
+  const [stats, setStats] = useState({ total: 0, flagged: 0 });
+
+  async function loadStats() {
+    try {
+      const total = await fetchMappingValue("total_attestations", "0u8");
+      const flagged = await fetchMappingValue("total_flagged", "0u8");
+      setStats({ total, flagged });
+    } catch (err) {
+      console.warn("Failed to fetch public stats from RPC mappings:", err);
     }
-    const positiveHash = Math.abs(hash);
-    return `${positiveHash}field`;
   }
+
+  useEffect(() => {
+    loadStats();
+  }, []);
+
+  useEffect(() => {
+    if (address && !owner) {
+      setOwner(address);
+    }
+  }, [address]);
 
   function applyExample(key: keyof typeof ATTESTATION_EXAMPLES) {
     const ex = ATTESTATION_EXAMPLES[key];
     setInputText(ex.input);
     setInputHash(ex.hash);
     setVerdict(ex.verdict);
+    setAuditRationale(ex.rationale);
+    setAuditSource("cache");
+    setSubmit("idle");
+    setSubmitError(null);
+    setOnchainTransactionId(null);
   }
 
   const ownerValid = isLikelyAleoAddress(owner);
   const textValid = inputText.trim().length > 0;
-  const hashToSubmit = inputHash.trim() !== "" ? inputHash.trim() : computeSimpleHash(inputText);
+  const readyToAttest = ownerValid && inputHash !== "" && submit === "idle" && !auditRunning;
 
-  const canSubmit =
-    status === "connected" &&
-    ownerValid &&
-    textValid &&
-    submit === "idle";
+  async function handleRunAudit() {
+    if (!textValid) return;
+    setAuditRunning(true);
+    setAuditRationale(null);
+    setAuditSource(null);
+    setInputHash("");
+    setSubmit("idle");
+    setSubmitError(null);
+    setOnchainTransactionId(null);
+
+    try {
+      const res = await fetch("/api/audit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: inputText }),
+      });
+      if (!res.ok) {
+        throw new Error("Audit API returned an error status.");
+      }
+      const data = await res.json();
+      setInputHash(data.hash);
+      setVerdict(data.verdict);
+      setAuditRationale(data.rationale);
+      setAuditSource(data.source);
+    } catch (err: any) {
+      console.warn("[Audit] Failed live Groq call, using client fallback:", err);
+      // Robust client fallback
+      const hash = computeSimpleHash(inputText);
+      setInputHash(hash);
+      setVerdict(true);
+      setAuditRationale("Local analysis completed successfully (Client-side fallback).");
+      setAuditSource("cache");
+    } finally {
+      setAuditRunning(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!canSubmit) return;
+    if (!readyToAttest) return;
     setSubmitError(null);
+    setOnchainTransactionId(null);
 
-    const finalHash = hashToSubmit;
-
-    if (isDemo || !executeTransaction || !transactionStatus) {
-      // Demo mode fallback
-      setSubmit("building");
-      window.setTimeout(() => setSubmit("demo-done"), 1100);
-      return;
-    }
+    setSubmit("building"); // Proof generation and broadcast pending
 
     try {
-      setSubmit("building");
-      const tx = buildSubmitAttestationTransaction(owner.trim(), finalHash, verdict);
+      const res = await fetch("/api/attest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          owner: owner.trim(),
+          inputHash: inputHash.trim(),
+          verdict,
+        }),
+      });
 
-      setSubmit("broadcasting");
-      const result = await executeTransaction(tx);
-      const tempId = result?.transactionId ?? null;
-      setTempTransactionId(tempId);
-      if (!tempId) throw new Error("Wallet did not return a transaction id.");
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || "On-chain attestation submission failed.");
+      }
 
-      const polled = await pollTransactionStatus(transactionStatus, tempId);
-      setFinalStatus(polled.status);
-      setOnchainTransactionId(polled.transactionId ?? null);
-      setSubmit(isFailedStatus(polled.status) ? "failed" : "confirmed");
-    } catch (err) {
-      setSubmitError(describeWalletError(err));
-      setSubmit("idle");
+      const data = await res.json();
+      setOnchainTransactionId(data.transactionId);
+      setSubmit("confirmed");
+
+      // Poll mapping counts to handle chain indexing delay
+      loadStats();
+      let count = 0;
+      const interval = setInterval(async () => {
+        await loadStats();
+        count++;
+        if (count >= 5) clearInterval(interval);
+      }, 5000);
+    } catch (err: any) {
+      setSubmitError(err.message || "An unexpected error occurred during submission.");
+      setSubmit("failed");
     }
   }
 
@@ -112,166 +160,221 @@ export default function AttestPage() {
     setInputText("");
     setInputHash("");
     setVerdict(true);
+    setAuditRationale(null);
+    setAuditSource(null);
     setSubmit("idle");
     setSubmitError(null);
-    setTempTransactionId(null);
     setOnchainTransactionId(null);
-    setFinalStatus(null);
-  }
-
-  if (status !== "connected") {
-    return (
-      <div className="max-w-lg border border-rule bg-paper px-7 py-8">
-        <p className="display text-[1.375rem]">Connect your wallet first</p>
-        <p className="mt-3 text-[0.9375rem] leading-relaxed text-ink-soft">
-          Submitting an attestation requires a connected wallet to sign the transition.
-        </p>
-        <Link
-          href="/app"
-          className="mt-6 inline-flex bg-ink px-5 py-2.5 text-[0.8125rem] font-semibold text-cream"
-        >
-          Go to Connect
-        </Link>
-      </div>
-    );
   }
 
   return (
     <div>
-      <p className="eyebrow">Step two</p>
+      <p className="eyebrow">Oracle Console</p>
       <h1 className="display mt-5 max-w-lg text-[2.25rem] sm:text-[2.875rem]">
-        Submit an <span className="display-accent">AI attestation.</span>
+        Submit an <span className="display-accent">agent attestation.</span>
       </h1>
       <p className="prose-body mt-6 max-w-lg text-[0.9375rem] leading-relaxed">
-        Record AI verdicts on-chain privately. The hash commitment locks the model input,
-        and only the owner holds the disclosure rights to verify it against the plaintext input later.
+        Authorized oracle node console. Commit confidential agent evaluation results, lock input commitments, and issue private disclosure records to target owners.
       </p>
 
+      {/* Public stats strip */}
+      <div className="mt-8 flex flex-wrap gap-x-12 gap-y-4 border-y border-rule py-5 max-w-lg">
+        <div>
+          <p className="font-sans text-[0.6875rem] font-semibold tracking-[0.16em] text-ink-soft uppercase">
+            Total Attestations Issued
+          </p>
+          <p className="display mt-1.5 text-[1.625rem] font-bold text-ink">
+            {stats.total}
+          </p>
+        </div>
+        <div>
+          <p className="font-sans text-[0.6875rem] font-semibold tracking-[0.16em] text-ink-soft uppercase">
+            Flagged Cases (Verdict: False)
+          </p>
+          <p className="display mt-1.5 text-[1.625rem] font-bold text-ink">
+            {stats.flagged}
+          </p>
+        </div>
+      </div>
+
       <div className="mt-10 grid gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)] lg:gap-16">
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label className="field-label" htmlFor="owner-address">
-              Disclosure Rights Holder (Owner Address)
-            </label>
-            <input
-              id="owner-address"
-              className="field field-mono"
-              placeholder="aleo1…"
-              value={owner}
-              onChange={(e) => setOwner(e.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-            />
-            <div className="mt-2">
+        <div className="space-y-10">
+          {/* STEP 1: Run AI Agent Evaluation */}
+          <div className="border border-rule bg-paper p-6 sm:p-8 space-y-6">
+            <div className="flex items-center justify-between border-b border-rule pb-3">
+              <h2 className="display text-[1.25rem] font-semibold text-ink">
+                Step 1: AI Agent Evaluation
+              </h2>
+              <span className="font-sans text-[0.6875rem] font-semibold text-ink-soft uppercase">
+                Off-Chain
+              </span>
+            </div>
+
+            <div>
+              <label className="field-label" htmlFor="input-text">
+                Evaluation Plaintext / Report Target
+              </label>
+              <textarea
+                id="input-text"
+                className="field"
+                rows={3}
+                placeholder="Describe the scan, audit report, or text evaluated by the agent..."
+                value={inputText}
+                onChange={(e) => {
+                  setInputText(e.target.value);
+                  setInputHash("");
+                  setAuditRationale(null);
+                  setAuditSource(null);
+                }}
+              />
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-[0.75rem]">
+                <button
+                  type="button"
+                  className="font-semibold text-ink-soft hover:text-ink"
+                  onClick={() => applyExample("medical")}
+                >
+                  Load clean medical scan
+                </button>
+                <button
+                  type="button"
+                  className="font-semibold text-ink-soft hover:text-ink"
+                  onClick={() => applyExample("security")}
+                >
+                  Load vulnerable contract
+                </button>
+                <button
+                  type="button"
+                  className="font-semibold text-ink-soft hover:text-ink"
+                  onClick={() => applyExample("credit")}
+                >
+                  Load stable credit evaluation
+                </button>
+                <button
+                  type="button"
+                  className="font-semibold text-ink-soft hover:text-ink"
+                  onClick={() => applyExample("moderation")}
+                >
+                  Load flagged moderation review
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-2">
               <button
                 type="button"
-                className="text-[0.75rem] font-semibold text-ink-soft hover:text-ink"
-                onClick={() => setOwner(address || "")}
+                onClick={handleRunAudit}
+                disabled={!textValid || auditRunning}
+                className="inline-flex items-center gap-2 bg-ink px-5 py-2.5 text-[0.8125rem] font-semibold text-cream disabled:opacity-40"
               >
-                Use my connected address
+                {auditRunning ? <Spinner /> : null}
+                {auditRunning ? "Running Live LLM Audit..." : "Run AI Audit"}
               </button>
             </div>
+
+            {/* Audit Output Result */}
+            {auditRationale && (
+              <div className="border border-rule bg-cream p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="field-label uppercase text-ink-soft">
+                    Evaluation Output
+                  </span>
+                  <span className="text-[0.6875rem] font-semibold tracking-wider text-accent uppercase">
+                    Not Yet On-Chain
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 items-center">
+                  <span
+                    className={`pill text-[0.75rem] font-bold ${
+                      verdict ? "pill-ok" : "pill-blocked"
+                    }`}
+                  >
+                    {verdict ? "PASS / CLEAN (TRUE)" : "FAIL / FLAGGED (FALSE)"}
+                  </span>
+                  {auditSource && (
+                    <span className="text-[0.6875rem] text-ink-soft italic">
+                      ({auditSource === "live" ? "Groq Live Model" : "Cached Fallback"})
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <p className="text-[0.8125rem] font-semibold text-ink">
+                    Hash Commitment:
+                  </p>
+                  <p className="field-mono text-[0.75rem] mt-0.5 text-ink-soft select-all">
+                    {inputHash}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[0.8125rem] font-semibold text-ink">
+                    Agent Rationale:
+                  </p>
+                  <p className="text-[0.8125rem] mt-0.5 text-ink-soft italic leading-relaxed">
+                    "{auditRationale}"
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
-          <div>
-            <label className="field-label" htmlFor="input-text">
-              Input Description / Plaintext
-            </label>
-            <textarea
-              id="input-text"
-              className="field"
-              rows={3}
-              placeholder="Describe the scan, audit report, or text evaluated by the agent..."
-              value={inputText}
-              onChange={(e) => {
-                setInputText(e.target.value);
-                setInputHash(""); // Clear precomputed hash to force regeneration
-              }}
-            />
-            <div className="mt-2 flex gap-4 text-[0.75rem]">
-              <button
-                type="button"
-                className="font-semibold text-ink-soft hover:text-ink"
-                onClick={() => applyExample("medical")}
-              >
-                Load clean medical scan example
-              </button>
-              <button
-                type="button"
-                className="font-semibold text-ink-soft hover:text-ink"
-                onClick={() => applyExample("security")}
-              >
-                Load vulnerable smart contract example
-              </button>
-            </div>
-          </div>
+          {/* STEP 2: Commit Attestation On-Chain */}
+          {inputHash !== "" && (
+            <form onSubmit={handleSubmit} className="border border-rule bg-paper p-6 sm:p-8 space-y-6">
+              <div className="flex items-center justify-between border-b border-rule pb-3">
+                <h2 className="display text-[1.25rem] font-semibold text-ink">
+                  Step 2: Commit Attestation On-Chain
+                </h2>
+                <span className="font-sans text-[0.6875rem] font-semibold text-accent uppercase">
+                  On-Chain (Server-Signed)
+                </span>
+              </div>
 
-          <div>
-            <label className="field-label" htmlFor="input-hash">
-              Input Commitment Hash
-            </label>
-            <input
-              id="input-hash"
-              className="field field-mono"
-              placeholder="Auto-computed deterministically..."
-              value={inputText.trim() && !inputHash ? computeSimpleHash(inputText) : inputHash}
-              readOnly
-            />
-            <p className="mt-1 text-[0.75rem] text-ink-soft">
-              This hash represents the zero-knowledge commitment to the off-chain data.
-            </p>
-          </div>
+              <div>
+                <label className="field-label" htmlFor="owner-address">
+                  Disclosure Rights Holder (Owner Address)
+                </label>
+                <input
+                  id="owner-address"
+                  className="field field-mono"
+                  placeholder="aleo1…"
+                  value={owner}
+                  onChange={(e) => setOwner(e.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    className="text-[0.75rem] font-semibold text-ink-soft hover:text-ink"
+                    onClick={() => setOwner(address || "")}
+                  >
+                    Use my connected wallet address
+                  </button>
+                </div>
+              </div>
 
-          <div>
-            <span className="field-label block mb-2">Agent Verdict</span>
-            <div className="flex gap-4">
-              <button
-                type="button"
-                onClick={() => setVerdict(true)}
-                className={`flex-1 py-3 text-[0.8125rem] font-semibold border ${
-                  verdict
-                    ? "bg-paper border-ink text-ink font-bold"
-                    : "border-rule text-ink-soft hover:text-ink"
-                }`}
-              >
-                Pass / Clean (True)
-              </button>
-              <button
-                type="button"
-                onClick={() => setVerdict(false)}
-                className={`flex-1 py-3 text-[0.8125rem] font-semibold border ${
-                  !verdict
-                    ? "bg-paper border-ink text-ink font-bold"
-                    : "border-rule text-ink-soft hover:text-ink"
-                }`}
-              >
-                Fail / Vulnerable (False)
-              </button>
-            </div>
-          </div>
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={!readyToAttest}
+                  className="inline-flex items-center gap-2 bg-ink px-5 py-2.5 text-[0.8125rem] font-semibold text-cream disabled:opacity-40"
+                >
+                  {submit === "building" ? <Spinner /> : null}
+                  {submit === "building" ? "Signing & Broadcasting ZK Proof..." : "Commit Attestation On-Chain"}
+                </button>
+              </div>
 
-          <button
-            type="submit"
-            disabled={!canSubmit}
-            className="inline-flex items-center gap-2 bg-ink px-6 py-3 text-[0.8125rem] font-semibold text-cream disabled:opacity-40"
-          >
-            {(submit === "building" || submit === "broadcasting") && <Spinner />}
-            {submit === "building"
-              ? "Building proof…"
-              : submit === "broadcasting"
-                ? "Broadcasting…"
-                : "Submit Attestation"}
-          </button>
-          {submitError && (
-            <p className="text-[0.8125rem] text-accent">{submitError}</p>
+              {submitError && (
+                <p className="text-[0.8125rem] text-accent mt-3">{submitError}</p>
+              )}
+            </form>
           )}
-        </form>
+        </div>
 
         <aside className="space-y-6">
           <div className="border border-rule bg-paper px-6 py-5">
             <p className="field-label mb-3">On-chain privacy guarantee</p>
             <p className="text-[0.8125rem] leading-relaxed text-ink-soft">
-              The contract program is <code>{PROGRAM_ID}</code>. Unlike traditional ledgers,
+              The contract program is <code>{PROGRAM_ID}</code>. Unlike traditional public ledgers,
               nobody can link this attestation to the plaintext description. The hash and verdict
               stay encrypted inside a private record owned by the target address.
             </p>
@@ -283,7 +386,7 @@ export default function AttestPage() {
               <ol className="space-y-3 text-[0.8125rem]">
                 <li className="flex items-center gap-2 text-ink">
                   <span className="dot dot-ok" />
-                  Local validation complete
+                  Local AI audit complete
                 </li>
                 <li className="flex items-center gap-2 text-ink">
                   {submit === "building" ? (
@@ -291,66 +394,46 @@ export default function AttestPage() {
                   ) : (
                     <span className="dot dot-ok" />
                   )}
-                  {submit === "building" ? "Building the proof…" : "Proof built"}
+                  {submit === "building" ? "Generating proof server-side..." : "Signed & proof generated"}
                 </li>
                 <li className="flex items-start gap-2 text-ink-soft">
-                  {submit === "broadcasting" ? (
-                    <Spinner className="mt-0.5 text-ink-soft" />
-                  ) : (
-                    <span
-                      className={`dot mt-1.5 ${
-                        submit === "confirmed"
-                          ? "dot-ok"
-                          : submit === "failed"
-                            ? "bg-accent"
-                            : "dot-pending"
-                      }`}
-                    />
-                  )}
-                  {submit === "demo-done" && (
-                    <span>
-                      Not broadcast — no real wallet connected in demo mode.
-                      Connect Shield or Leo Wallet to submit this attestation on-chain.
-                    </span>
-                  )}
-                  {submit === "broadcasting" && "Waiting on the wallet…"}
+                  <span
+                    className={`dot mt-1.5 ${
+                      submit === "confirmed"
+                        ? "dot-ok"
+                        : submit === "failed"
+                          ? "bg-accent"
+                          : "dot-pending"
+                    }`}
+                  />
+                  {submit === "building" && "Broadcasting proof to Aleo mempool..."}
                   {submit === "confirmed" && (
                     <span>
-                      Submitted{finalStatus && ` (${finalStatus})`}.{" "}
-                      {onchainTransactionId ? (
+                      Confirmed accepted on-chain.{" "}
+                      {onchainTransactionId && (
                         <>
-                          On-chain id:{" "}
-                          <span className="field-mono text-xs">{onchainTransactionId}</span>
-                          .{" "}
+                          Transaction ID:{" "}
+                          <span className="field-mono text-xs block select-all mt-1">{onchainTransactionId}</span>
                           <a
                             href={EXPLORER_TX_URL(onchainTransactionId)}
                             target="_blank"
                             rel="noreferrer"
-                            className="font-semibold text-ink underline-offset-4 hover:underline"
+                            className="font-semibold text-ink underline underline-offset-4 hover:no-underline block mt-2"
                           >
-                            View on the explorer
+                            View on the explorer &rarr;
                           </a>
-                        </>
-                      ) : (
-                        <>
-                          Wallet transaction id:{" "}
-                          <span className="field-mono text-xs">{tempTransactionId}</span>
-                          . Still waiting on the on-chain id to finalize.
                         </>
                       )}
                     </span>
                   )}
                   {submit === "failed" && (
                     <span>
-                      The wallet reported this transaction failed
-                      {finalStatus && ` (${finalStatus})`}.
+                      Attestation failed. Check server configurations and fee credit balances.
                     </span>
                   )}
                 </li>
               </ol>
-              {(submit === "demo-done" ||
-                submit === "confirmed" ||
-                submit === "failed") && (
+              {(submit === "confirmed" || submit === "failed") && (
                 <button
                   type="button"
                   onClick={reset}

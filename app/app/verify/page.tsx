@@ -218,13 +218,12 @@ export default function VerifyPage() {
 
   return (
     <div>
-      <p className="eyebrow">Step three</p>
+      <p className="eyebrow">Auditor Console</p>
       <h1 className="display mt-5 max-w-lg text-[2.25rem] sm:text-[2.875rem]">
-        Verify an <span className="display-accent">attestation record.</span>
+        Audit a committed <span className="display-accent">verdict.</span>
       </h1>
       <p className="prose-body mt-6 max-w-lg text-[0.9375rem] leading-relaxed">
-        Verify that a private attestation record binds a specific claimed input hash commitment.
-        The result confirms whether the commitment matches, revealing the verdict without exposing the raw off-chain input data.
+        Public auditor console. Verify that a private attestation record binds a specific claimed input commitment, confirming the verdict without exposing the raw off-chain input data.
       </p>
 
       {!isDemo && (
@@ -304,7 +303,7 @@ export default function VerifyPage() {
               autoComplete="off"
               spellCheck={false}
             />
-            <div className="mt-2 flex gap-4 text-[0.75rem]">
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[0.75rem]">
               <button
                 type="button"
                 className="font-semibold text-ink-soft hover:text-ink"
@@ -318,6 +317,20 @@ export default function VerifyPage() {
                 onClick={() => setClaimedHash(ATTESTATION_EXAMPLES.security.hash)}
               >
                 Try the security audit hash
+              </button>
+              <button
+                type="button"
+                className="font-semibold text-ink-soft hover:text-ink"
+                onClick={() => setClaimedHash(ATTESTATION_EXAMPLES.credit.hash)}
+              >
+                Try the credit risk hash
+              </button>
+              <button
+                type="button"
+                className="font-semibold text-ink-soft hover:text-ink"
+                onClick={() => setClaimedHash(ATTESTATION_EXAMPLES.moderation.hash)}
+              >
+                Try the content moderation hash
               </button>
             </div>
           </div>

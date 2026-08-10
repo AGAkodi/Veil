@@ -5,7 +5,7 @@ import {
   type TransactionStatusResponse,
 } from "@provablehq/aleo-types";
 
-export const PROGRAM_ID = "veil_attest.aleo";
+export const PROGRAM_ID = "veil_attest_v2.aleo";
 export const RECORD_NAME = "Attestation";
 
 /**
@@ -173,4 +173,22 @@ export function describeWalletError(err: unknown): string {
   if (/insufficient/i.test(message)) return "Insufficient balance for this transaction.";
   if (/user rejected|denied/i.test(message)) return "Request was declined in the wallet.";
   return "Something went wrong talking to your wallet. Check the browser console for details.";
+}
+
+export async function fetchMappingValue(mappingName: string, key: string): Promise<number> {
+  const endpoint = process.env.NEXT_PUBLIC_ALEO_ENDPOINT || "https://api.explorer.provable.com/v1";
+  const programId = process.env.NEXT_PUBLIC_PROGRAM_ID || "veil_attest.aleo";
+  const url = `${endpoint}/testnet/program/${programId}/mapping/${mappingName}/${key}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return 0;
+    const val = await res.json();
+    if (val === null || val === undefined) return 0;
+    // Aleo mapping values are returned as plain JSON strings with suffixes, e.g. "12u64" or "0u64"
+    const cleaned = String(val).replace(/u64$/, "");
+    const parsed = parseInt(cleaned, 10);
+    return isNaN(parsed) ? 0 : parsed;
+  } catch {
+    return 0;
+  }
 }

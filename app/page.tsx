@@ -22,9 +22,9 @@ const guarantees = [
 
 const contrast = [
   {
-    label: "ARCANUM — Stellar",
+    label: "The usual approach",
     lead: "Privacy as application code",
-    body: "A shielded pool and two Noir circuits, maintained by us, sitting on a ledger that records every transfer in the clear. The guarantee was only ever as strong as the code around it.",
+    body: "An access layer bolted on after the fact that someone has to maintain, sitting on a public ledger not built to hide anything. The privacy guarantee is only as strong as the code surrounding it.",
     tone: "muted" as const,
   },
   {
@@ -79,7 +79,48 @@ export default function Home() {
               knowledge. The chain confirms the attestation happened and learns nothing else.
             </p>
           </div>
-          <div className="mt-11 flex flex-wrap items-center gap-x-8 gap-y-4">
+          <div className="mt-12 grid gap-6 md:grid-cols-2 max-w-4xl">
+            <div className="border border-ink bg-paper p-6 relative group">
+              <span className="font-sans text-[0.6875rem] font-semibold tracking-[0.16em] text-accent uppercase">
+                Oracle Node Role
+              </span>
+              <h3 className="display mt-2 text-[1.5rem] font-semibold text-ink">
+                Submit an attestation
+              </h3>
+              <p className="mt-2 text-[0.875rem] leading-relaxed text-ink-soft">
+                Securely record AI agent verdicts on-chain. Generate input commitments and encrypt disclosure records under the holder's key.
+              </p>
+              <div className="mt-6">
+                <Link
+                  href="/app/attest"
+                  className="inline-flex bg-ink px-4 py-2.5 text-[0.8125rem] font-semibold text-cream hover:bg-ink-soft"
+                >
+                  Open Oracle Console &rarr;
+                </Link>
+              </div>
+            </div>
+
+            <div className="border border-rule bg-cream p-6 relative group">
+              <span className="font-sans text-[0.6875rem] font-semibold tracking-[0.16em] text-ink-soft uppercase">
+                Auditor Role
+              </span>
+              <h3 className="display mt-2 text-[1.5rem] font-semibold text-ink">
+                Audit a verdict
+              </h3>
+              <p className="mt-2 text-[0.875rem] leading-relaxed text-ink-soft">
+                Audit on-chain commitments without exposing off-chain private inputs. Verify that the agent executed cleanly on the claimed data.
+              </p>
+              <div className="mt-6">
+                <Link
+                  href="/app/verify"
+                  className="inline-flex border border-ink px-4 py-2.5 text-[0.8125rem] font-semibold text-ink hover:bg-paper"
+                >
+                  Open Auditor Console &rarr;
+                </Link>
+              </div>
+            </div>
+          </div>
+          <div className="mt-8 flex flex-wrap items-center gap-x-8 gap-y-4">
             <ArrowLink href="#origin">Read the origin</ArrowLink>
             <span className="text-[0.8125rem] text-ink-soft">
               Testnet build in progress — no mainnet deployment yet.
@@ -100,31 +141,25 @@ export default function Home() {
             <OriginFigure className="w-full max-w-[440px] justify-self-center" />
 
             <div>
-              <p className="eyebrow">A project with an origin</p>
+              <p className="eyebrow">The core premise</p>
               <h2 className="display mt-5 text-[2.125rem] sm:text-[2.875rem]">
-                It started as a shielded pool called{" "}
-                <span className="display-accent">ARCANUM.</span>
+                AI agents increasingly make{" "}
+                <span className="display-accent">consequential calls.</span>
               </h2>
               <div className="prose-body mt-7 space-y-5 max-w-lg">
                 <p>
-                  Its first job was simple: let an institution check compliance and make a
-                  payment on Stellar without publishing the details. Two Noir circuits, a
-                  Soroban verifier, a pool to hold value. It worked.
+                  Decisions like security verdicts, credit assessments, or moderation flags are executed on data nobody else can see. Once posted, there is no way to check that a verdict was genuinely computed from what is claimed, without exposing the sensitive input data itself.
                 </p>
                 <p>
-                  Repeated use exposed a larger problem. The privacy was ours,
-                  not the chain&apos;s — it lived in circuits we wrote and a
-                  pool we maintained, on a ledger built to reveal. Every
-                  guarantee had our code as its weakest link, and the
-                  plaintext was always one integration mistake away.
+                  Veil binds each verdict to a cryptographic commitment of its input, encrypted at the protocol layer rather than an application-level permission layer. Anyone can verify the verdict is genuine, while no one ever sees the input.
                 </p>
               </div>
               <p className="pull mt-7">
-                The rest, as they say, is history.
+                Privacy and auditability, unified.
               </p>
               <div className="mt-7">
                 <ArrowLink href="#difference">
-                  See what changed on Aleo
+                  See how the protocol does this
                 </ArrowLink>
               </div>
             </div>
@@ -179,13 +214,11 @@ export default function Home() {
             <div>
               <p className="eyebrow">The difference</p>
               <h2 className="display mt-5 text-[2.125rem] sm:text-[2.875rem]">
-                Privacy stopped being{" "}
-                <span className="display-accent">our responsibility.</span>
+                Privacy is not{" "}
+                <span className="display-accent">an option.</span>
               </h2>
               <p className="mt-7 max-w-md text-[0.9375rem] leading-relaxed text-ink-soft">
-                The same thesis, moved one layer down. What ARCANUM had to
-                construct, Veil inherits — and what it inherits cannot be
-                misconfigured away.
+                Most systems add privacy as a separate layer that can be misconfigured, bypassed, or skipped. Veil starts from a protocol where privacy was never separate to begin with.
               </p>
             </div>
 
