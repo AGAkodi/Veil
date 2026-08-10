@@ -1,15 +1,15 @@
-// Tests for veil.aleo.
+// Tests for veil_rails_v2.aleo.
 //
 // Addresses below are freshly generated throwaways used only as literals.
 // No private keys are stored here or anywhere in the repo.
 //
 // Leo 4.4.1 parser constraints worth knowing before editing this file:
 //   - `const` must sit at file scope, not inside the `program { ... }` block
-//   - `veil.aleo/PaymentRecord` does not parse as a `let` type annotation,
+//   - `veil_rails_v2.aleo/PaymentRecord` does not parse as a `let` type annotation,
 //     so record bindings are left to inference
 //   - identifiers may not begin with `_` and are capped at 31 bytes
 
-import veil.aleo;
+import veil_rails_v2.aleo;
 
 const ALICE: address = aleo1ldvqz7kdgjs7pr0tazmy5qpa3aydxvly2756e432sphn224u9c9s9cxtu2;
 const BOB: address = aleo10mchgsa7r9wh7szf046q97adzea8y6xda6s7xrvtmsw9pd03pczszppthv;
@@ -40,8 +40,8 @@ program test_veil.aleo {
     @test
     fn test_partial_transfer() {
         let me: address = std::ctx::signer();
-        let funded = veil.aleo::issue(me, 10_000u64, 0field);
-        let (to_bob, change) = veil.aleo::private_transfer(funded, BOB, 3_000u64);
+        let funded = veil_rails_v2.aleo::issue(me, 10_000u64, 0field);
+        let (to_bob, change) = veil_rails_v2.aleo::private_transfer(funded, BOB, 3_000u64);
 
         assert_eq(to_bob.owner, BOB);
         assert_eq(to_bob.amount, 3_000u64);
@@ -55,8 +55,8 @@ program test_veil.aleo {
     @test
     fn test_exact_amount_zero_change() {
         let me: address = std::ctx::signer();
-        let funded = veil.aleo::issue(me, 5_000u64, 0field);
-        let (to_bob, change) = veil.aleo::private_transfer(funded, BOB, 5_000u64);
+        let funded = veil_rails_v2.aleo::issue(me, 5_000u64, 0field);
+        let (to_bob, change) = veil_rails_v2.aleo::private_transfer(funded, BOB, 5_000u64);
 
         assert_eq(to_bob.amount, 5_000u64);
         assert_eq(change.amount, 0u64);
@@ -67,8 +67,8 @@ program test_veil.aleo {
     @should_fail
     fn test_overspend_rejected() {
         let me: address = std::ctx::signer();
-        let funded = veil.aleo::issue(me, 1_000u64, 0field);
-        let (out, rest) = veil.aleo::private_transfer(funded, BOB, 1_001u64);
+        let funded = veil_rails_v2.aleo::issue(me, 1_000u64, 0field);
+        let (out, rest) = veil_rails_v2.aleo::private_transfer(funded, BOB, 1_001u64);
         assert_eq(out.amount, 1_001u64);
         assert_eq(rest.amount, 0u64);
     }
@@ -77,14 +77,14 @@ program test_veil.aleo {
 
     @test
     fn test_clean_party_passes() {
-        let ok: bool = veil.aleo::prove_compliance(BOB, SANCTIONS);
+        let ok: bool = veil_rails_v2.aleo::prove_compliance(BOB, SANCTIONS);
         assert(ok);
     }
 
     @test
     @should_fail
     fn test_sanctioned_blocked() {
-        let ok: bool = veil.aleo::prove_compliance(MALLORY, SANCTIONS);
+        let ok: bool = veil_rails_v2.aleo::prove_compliance(MALLORY, SANCTIONS);
         assert(ok);
     }
 }

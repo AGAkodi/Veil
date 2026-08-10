@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ArrowLink } from "./components/ArrowLink";
 import { OriginFigure } from "./components/OriginFigure";
 
@@ -10,7 +11,7 @@ const guarantees = [
   {
     n: "02",
     title: "Compliance proves itself",
-    body: "Sanctions screening runs against a published Merkle root. The transition proves the counterparty is absent from the list without the address ever appearing on-chain. A failed check means the transfer never executes.",
+    body: "Sanctions screening runs against a published, on-chain list — public so the list itself stays auditable. The transition proves the counterparty is absent from it without the address ever appearing on-chain. A failed check means the transfer never executes.",
   },
   {
     n: "03",
@@ -50,7 +51,12 @@ export default function Home() {
             Difference
           </a>
         </nav>
-        <span className="eyebrow hidden sm:block">Aleo Testnet</span>
+        <Link
+          href="/app"
+          className="inline-flex bg-ink px-4 py-2 text-[0.75rem] font-semibold text-cream sm:text-[0.8125rem]"
+        >
+          Open the app
+        </Link>
       </header>
 
       <main className="flex-1">

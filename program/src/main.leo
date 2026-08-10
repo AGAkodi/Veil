@@ -1,4 +1,4 @@
-// veil.aleo — private institutional payment rails.
+// veil_rails_v2.aleo — private institutional payment rails.
 //
 // Two surfaces:
 //   private_transfer  — move value between parties without publishing amount,
@@ -6,7 +6,7 @@
 //   prove_compliance  — prove a counterparty is absent from a sanctions list
 //                       without publishing which counterparty was screened
 
-program veil.aleo {
+program veil_rails_v2.aleo {
 
     // Deployment is final. Payment rails whose logic can be swapped out later
     // are not payment rails an institution can underwrite.
@@ -77,7 +77,7 @@ program veil.aleo {
     // Linear scan, so cost grows with the list. A Merkle-root version would
     // fix that; it is a stretch goal, not a port from ARCANUM (whose circuit
     // scans a public array too, despite what its README claims).
-    fn prove_compliance(counterparty: address, sanctions: [field; 10]) -> bool {
+    fn prove_compliance(counterparty: address, public sanctions: [field; 10]) -> bool {
         let subject: field = BHP256::hash_to_field(counterparty);
         let clean: bool = true;
 

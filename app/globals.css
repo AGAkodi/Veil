@@ -10,6 +10,10 @@
   --sage: #c3c9bf;
   --sage-deep: #6e7a70;
   --accent: #ea6b3e;
+
+  /* Status color, not sampled from design.jpg (it has no state-indicator
+     precedent) — a muted green mixed to sit in the same family as --sage. */
+  --ok: #4b7a5a;
 }
 
 @theme inline {
@@ -21,6 +25,7 @@
   --color-sage: var(--sage);
   --color-sage-deep: var(--sage-deep);
   --color-accent: var(--accent);
+  --color-ok: var(--ok);
 
   --font-serif: var(--font-newsreader);
   --font-sans: var(--font-inter);
@@ -79,4 +84,94 @@ body {
   .link-arrow:hover svg {
     transform: translate(2px, -2px);
   }
+}
+
+/* Form fields used on the app screens (Connect / Send / Compliance). */
+.field {
+  width: 100%;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  font-family: var(--font-inter), ui-sans-serif, sans-serif;
+  font-size: 0.9375rem;
+  padding: 0.75rem 0.875rem;
+  outline: none;
+  transition: border-color 150ms ease;
+}
+
+.field::placeholder {
+  color: var(--ink-soft);
+  opacity: 0.55;
+}
+
+.field:focus {
+  border-color: var(--accent);
+}
+
+.field-mono {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.875rem;
+  letter-spacing: -0.01em;
+}
+
+.field-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--ink-soft);
+  margin-bottom: 0.5rem;
+}
+
+/* Status pills: pass / fail / neutral, used by the compliance and
+   transaction-status views. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4375rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.375rem 0.75rem;
+}
+
+.pill::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  flex: none;
+}
+
+.pill-ok {
+  background: color-mix(in srgb, var(--ok) 12%, var(--paper));
+  color: var(--ok);
+}
+
+.pill-blocked {
+  background: color-mix(in srgb, var(--accent) 12%, var(--paper));
+  color: var(--accent);
+}
+
+.pill-neutral {
+  background: var(--paper);
+  color: var(--ink-soft);
+  border: 1px solid var(--rule);
+}
+
+/* Small status dots for step lists (e.g. transaction status). */
+.dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex: none;
+}
+
+.dot-ok {
+  background: var(--ok);
+}
+
+.dot-pending {
+  background: var(--rule);
 }

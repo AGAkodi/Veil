@@ -9,6 +9,12 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@provablehq/aleo-types": "^1.0.1",
+    "@provablehq/aleo-wallet-adaptor-core": "^1.0.1",
+    "@provablehq/aleo-wallet-adaptor-leo": "^1.0.1",
+    "@provablehq/aleo-wallet-adaptor-react": "^1.0.1",
+    "@provablehq/aleo-wallet-adaptor-shield": "^1.0.1",
+    "@provablehq/aleo-wallet-standard": "^1.1.0",
     "next": "16.3.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"
