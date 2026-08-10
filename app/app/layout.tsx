@@ -7,8 +7,8 @@ import { WalletProvider, useWallet, truncateAddress } from "../lib/wallet-contex
 
 const NAV = [
   { href: "/app", label: "Connect" },
-  { href: "/app/send", label: "Send" },
-  { href: "/app/compliance", label: "Compliance" },
+  { href: "/app/attest", label: "Attest" },
+  { href: "/app/verify", label: "Verify" },
 ] as const;
 
 function ConnectedWalletMenu({
@@ -137,7 +137,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <footer className="border-t border-rule">
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-2 px-6 py-8 sm:flex-row sm:items-center sm:justify-between sm:px-10">
           <span className="text-[0.8125rem] text-ink-soft">
-            veil_rails_v2.aleo — Aleo testnet
+            veil_attest.aleo — Aleo testnet
           </span>
           <span className="text-[0.8125rem] text-ink-soft">
             Demo build — see the README for what&apos;s live vs. simulated.

@@ -1,90 +1,71 @@
-// Tests for veil_rails_v2.aleo.
+// Tests for veil_attest.aleo.
 //
-// Addresses below are freshly generated throwaways used only as literals.
-// No private keys are stored here or anywhere in the repo.
-//
-// Leo 4.4.1 parser constraints worth knowing before editing this file:
-//   - `const` must sit at file scope, not inside the `program { ... }` block
-//   - `veil_rails_v2.aleo/PaymentRecord` does not parse as a `let` type annotation,
-//     so record bindings are left to inference
-//   - identifiers may not begin with `_` and are capped at 31 bytes
+// Gated submission and selective disclosure verification tests.
 
-import veil_rails_v2.aleo;
+import veil_attest.aleo;
 
-const ALICE: address = aleo1ldvqz7kdgjs7pr0tazmy5qpa3aydxvly2756e432sphn224u9c9s9cxtu2;
-const BOB: address = aleo10mchgsa7r9wh7szf046q97adzea8y6xda6s7xrvtmsw9pd03pczszppthv;
-const MALLORY: address = aleo1clffv46hyee4hk2nk06umudxdpmm4m8xrl0r0nlvks7fgtmp5sysgtrmr2;
-
-// A stand-in sanctions list. Entry 4 is MALLORY's hash, computed here so the
-// fixture cannot drift from the address it is supposed to screen.
-const SANCTIONS: [field; 10] = [
-    1001field,
-    1002field,
-    1003field,
-    1004field,
-    BHP256::hash_to_field(MALLORY),
-    1006field,
-    1007field,
-    1008field,
-    1009field,
-    1010field,
-];
+const USER: address = aleo1ldvqz7kdgjs7pr0tazmy5qpa3aydxvly2756e432sphn224u9c9s9cxtu2;
+const INPUT_HASH: field = 123456789field;
+const WRONG_HASH: field = 987654321field;
 
 program test_veil.aleo {
 
     @noupgrade
     constructor() {}
 
-    // --- private_transfer -------------------------------------------------
+    // Test: Oracle submits attestation -> succeeds.
+    // We run this test with the oracle's private key.
+    @test(private_key = "APrivateKey1zkpJ2uW8mrJ5ghfffGXFZ92gdv113WrziWBk2f8iy6TrZW8")
+    fn test_oracle_submit_succeeds() {
+        let att = veil_attest.aleo::submit_attestation(USER, INPUT_HASH, true);
 
-    @test
-    fn test_partial_transfer() {
-        let me: address = std::ctx::signer();
-        let funded = veil_rails_v2.aleo::issue(me, 10_000u64, 0field);
-        let (to_bob, change) = veil_rails_v2.aleo::private_transfer(funded, BOB, 3_000u64);
-
-        assert_eq(to_bob.owner, BOB);
-        assert_eq(to_bob.amount, 3_000u64);
-        assert_eq(change.owner, me);
-        assert_eq(change.amount, 7_000u64);
+        assert_eq(att.owner, USER);
+        assert_eq(att.input_hash, INPUT_HASH);
+        assert_eq(att.verdict, true);
+        assert_eq(att.oracle, aleo15m50rvhx0glq0hjv807c2t0z40et9ljmvdjrqv8f4pr8evzs2qysfnv2un);
     }
 
-    // The edge case the build plan flags: an exact-amount transfer must still
-    // emit a change record, at zero. Suppressing it would leak, via the output
-    // count, whether the sender drained the record.
-    @test
-    fn test_exact_amount_zero_change() {
-        let me: address = std::ctx::signer();
-        let funded = veil_rails_v2.aleo::issue(me, 5_000u64, 0field);
-        let (to_bob, change) = veil_rails_v2.aleo::private_transfer(funded, BOB, 5_000u64);
-
-        assert_eq(to_bob.amount, 5_000u64);
-        assert_eq(change.amount, 0u64);
-        assert_eq(change.owner, me);
-    }
-
+    // Test: Non-oracle address attempts to submit -> fails.
+    // Running without a specified private_key uses the default test runner key,
+    // which does not match ORACLE_ADDRESS.
     @test
     @should_fail
-    fn test_overspend_rejected() {
+    fn test_non_oracle_submit_fails() {
+        let att = veil_attest.aleo::submit_attestation(USER, INPUT_HASH, true);
+    }
+
+    // Test: Verify attestation with matching hash -> returns true.
+    @test(private_key = "APrivateKey1zkpJ2uW8mrJ5ghfffGXFZ92gdv113WrziWBk2f8iy6TrZW8")
+    fn test_verify_matching_succeeds() {
         let me: address = std::ctx::signer();
-        let funded = veil_rails_v2.aleo::issue(me, 1_000u64, 0field);
-        let (out, rest) = veil_rails_v2.aleo::private_transfer(funded, BOB, 1_001u64);
-        assert_eq(out.amount, 1_001u64);
-        assert_eq(rest.amount, 0u64);
+        // Oracle submits to create an attestation owned by me (so I can consume it)
+        let att = veil_attest.aleo::submit_attestation(me, INPUT_HASH, true);
+
+        // Verify the attestation against the matching hash.
+        // Returns (matches: bool, output_att: Attestation)
+        let (matches, output_att) = veil_attest.aleo::verify_attestation(att, INPUT_HASH);
+
+        assert(matches);
+        // Verify output record fields are preserved
+        assert_eq(output_att.owner, me);
+        assert_eq(output_att.input_hash, INPUT_HASH);
+        assert_eq(output_att.verdict, true);
     }
 
-    // --- prove_compliance -------------------------------------------------
+    // Test: Verify attestation with mismatched hash -> returns false.
+    @test(private_key = "APrivateKey1zkpJ2uW8mrJ5ghfffGXFZ92gdv113WrziWBk2f8iy6TrZW8")
+    fn test_verify_mismatch_fails() {
+        let me: address = std::ctx::signer();
+        // Oracle submits to create an attestation owned by me (so I can consume it)
+        let att = veil_attest.aleo::submit_attestation(me, INPUT_HASH, true);
 
-    @test
-    fn test_clean_party_passes() {
-        let ok: bool = veil_rails_v2.aleo::prove_compliance(BOB, SANCTIONS);
-        assert(ok);
-    }
+        // Verify against mismatched hash
+        let (matches, output_att) = veil_attest.aleo::verify_attestation(att, WRONG_HASH);
 
-    @test
-    @should_fail
-    fn test_sanctioned_blocked() {
-        let ok: bool = veil_rails_v2.aleo::prove_compliance(MALLORY, SANCTIONS);
-        assert(ok);
+        // Should return false for matches
+        assert_eq(matches, false);
+        // Verify record is still intact and returned
+        assert_eq(output_att.owner, me);
+        assert_eq(output_att.input_hash, INPUT_HASH);
     }
 }

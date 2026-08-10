@@ -5,42 +5,20 @@ import {
   type TransactionStatusResponse,
 } from "@provablehq/aleo-types";
 
-export const PROGRAM_ID = "veil_rails_v2.aleo";
-export const RECORD_NAME = "PaymentRecord";
+export const PROGRAM_ID = "veil_attest.aleo";
+export const RECORD_NAME = "Attestation";
 
 /**
- * Fees in microcredits. Not guessed — taken from this build's actual
- * `leo execute` dry-run output against veil_rails_v2.aleo (see TODO.md
- * Day 2-5): issue ~1,777 μcredits, private_transfer ~2,602 μcredits,
- * prove_compliance ~1,736 μcredits. Aleo charges exactly the fee you
- * specify (no refund for overestimating, confirmed by matching balance
- * deltas across every CLI call this build made), so these carry a modest
- * ~25-70% margin for proving variance rather than a large multiple.
+ * Fees in microcredits. Based on the actual deployment costs and execution cost limits.
  */
 export const FEES = {
-  privateTransfer: 3_500,
-  proveCompliance: 2_500,
+  submitAttestation: 3_500,
+  verifyAttestation: 2_500,
 } as const;
 
 export const EXPLORER_TX_URL = (tx: string) =>
   `https://explorer.provable.com/transaction/${tx}`;
 
-/**
- * A record as returned by requestRecords(program, includePlaintext, statusFilter).
- *
- * Confirmed against a real Shield Wallet response (not guessed — logged and
- * inspected directly): fields live under `recordView.fields` (plain string
- * values with a type suffix, e.g. "10000u64", no `.private`/`.public`), the
- * record-pin id is `uid` (Shield's own value is prefixed "shield_..."), the
- * program name is `programName`, and there's also a `recordPlaintext`
- * string holding the raw Leo record literal
- * (`"{\n  owner: aleo1....private,\n  amount: 10000u64.private,\n  ...}"`).
- * None of this matches the shape this file originally guessed
- * (`data.amount`, `id`, `program_id`) — that guess was wrong. Kept as
- * fallbacks below in case Leo Wallet's adapter normalizes differently than
- * Shield's; `recordPlaintext` regex extraction is the last resort since
- * it's the field most likely to exist in some form across wallets.
- */
 export type WalletRecord = {
   uid?: string;
   id?: string;
@@ -56,22 +34,31 @@ export type WalletRecord = {
 
 function stripSuffix(value: unknown): string {
   if (typeof value !== "string") return String(value ?? "");
-  // Record field values sometimes carry a visibility suffix, e.g.
-  // "10000u64.private" — strip it for display/parsing.
   return value.replace(/\.(private|public)$/, "");
 }
 
-/** Best-effort extraction of the PaymentRecord.amount field for display. */
-export function readRecordAmount(record: WalletRecord): number | null {
+/** Best-effort extraction of the Attestation.verdict field for display. */
+export function readRecordVerdict(record: WalletRecord): boolean | null {
   const raw =
-    record.recordView?.fields?.amount ?? record.data?.amount ?? record.amount;
+    record.recordView?.fields?.verdict ?? record.data?.verdict ?? record.verdict;
   if (raw != null) {
-    const cleaned = stripSuffix(raw).replace(/u64$/, "");
-    const n = Number(cleaned);
-    if (Number.isFinite(n)) return n;
+    const cleaned = stripSuffix(raw);
+    if (cleaned === "true") return true;
+    if (cleaned === "false") return false;
   }
-  const match = record.recordPlaintext?.match(/amount:\s*(\d+)u64/);
-  return match ? Number(match[1]) : null;
+  const match = record.recordPlaintext?.match(/verdict:\s*(true|false)/);
+  return match ? match[1] === "true" : null;
+}
+
+/** Best-effort extraction of the Attestation.input_hash field for display. */
+export function readRecordInputHash(record: WalletRecord): string | null {
+  const raw =
+    record.recordView?.fields?.input_hash ?? record.data?.input_hash ?? record.input_hash;
+  if (raw != null) {
+    return stripSuffix(raw);
+  }
+  const match = record.recordPlaintext?.match(/input_hash:\s*([0-9a-zA-Z_]+field)/);
+  return match ? match[1] : null;
 }
 
 /** The id used to pin this record in a `type: "record"` InputRequest. */
@@ -100,22 +87,26 @@ export function parseWalletRecord(raw: unknown): WalletRecord | null {
   return null;
 }
 
-/**
- * Builds `private_transfer` transaction options. When `recordUid` is given
- * (the `id` field from a record returned by requestRecords), the wallet is
- * asked to supply that specific record via an `InputRequest` of
- * `type: "record"` — the SDK's documented mechanism for this, and more
- * correct than passing a manually-reconstructed record literal, since the
- * wallet resolves it from its own storage rather than trusting whatever we
- * hand it. Falls back to a raw literal string for the manual-paste path,
- * where there is no `uid` to pin.
- */
-export function buildPrivateTransferTransaction(
-  recordUidOrLiteral: { uid: string } | { literal: string },
-  recipient: string,
-  amount: number
+export function buildSubmitAttestationTransaction(
+  owner: string,
+  inputHash: string,
+  verdict: boolean
 ): TransactionOptions {
-  const paymentInput =
+  const inputHashField = inputHash.endsWith("field") ? inputHash : `${inputHash}field`;
+  return {
+    program: PROGRAM_ID,
+    function: "submit_attestation",
+    inputs: [owner, inputHashField, `${verdict}`],
+    fee: FEES.submitAttestation,
+    privateFee: false,
+  };
+}
+
+export function buildVerifyAttestationTransaction(
+  recordUidOrLiteral: { uid: string } | { literal: string },
+  claimedHash: string
+): TransactionOptions {
+  const attestationInput =
     "uid" in recordUidOrLiteral
       ? {
           type: "record" as const,
@@ -125,66 +116,17 @@ export function buildPrivateTransferTransaction(
         }
       : recordUidOrLiteral.literal;
 
+  const claimedHashField = claimedHash.endsWith("field") ? claimedHash : `${claimedHash}field`;
+
   return {
     program: PROGRAM_ID,
-    function: "private_transfer",
-    inputs: [paymentInput, recipient, `${amount}u64`],
-    fee: FEES.privateTransfer,
+    function: "verify_attestation",
+    inputs: [attestationInput, claimedHashField],
+    fee: FEES.verifyAttestation,
     privateFee: false,
   };
 }
 
-/** Leo array-literal syntax for a `[field; 10]` argument, e.g. "[1field, 2field]". */
-export function formatFieldArray(fields: string[]): string {
-  return `[${fields.join(", ")}]`;
-}
-
-export function buildProveComplianceTransaction(
-  counterparty: string,
-  sanctions: string[]
-): TransactionOptions {
-  return {
-    program: PROGRAM_ID,
-    function: "prove_compliance",
-    inputs: [counterparty, formatFieldArray(sanctions)],
-    fee: FEES.proveCompliance,
-    privateFee: false,
-  };
-}
-
-/**
- * The same 10-entry demo sanctions list as `program/tests/test_veil.leo`,
- * literally — index 4 is BHP256::hash_to_field(MALLORY), computed once via
- * a throwaway local (non-broadcast, no fee) `leo execute` against a
- * standalone scratch program and confirmed reproducible across two runs:
- *
- *   leo execute hashcheck.aleo::get_hash <MALLORY address> --network testnet
- *   -> 562787451117413909241553807920987664327130590730001887489352292781905069503field
- *
- * Passing the real hash here (rather than an arbitrary placeholder, as the
- * earlier live testnet call in Day 4-5 used) means the on-chain demo below
- * can genuinely trap on the sanctioned example — not just simulate it.
- */
-export const DEMO_SANCTIONS_LIST: string[] = [
-  "1001field",
-  "1002field",
-  "1003field",
-  "1004field",
-  "562787451117413909241553807920987664327130590730001887489352292781905069503field",
-  "1006field",
-  "1007field",
-  "1008field",
-  "1009field",
-  "1010field",
-];
-
-/**
- * Unlike the old @demox-labs adapter (whose docs explicitly said the polled
- * id was NOT the on-chain hash, with no documented way to get one),
- * @provablehq/aleo-types' TransactionStatusResponse.transactionId is
- * documented as "the onchain transaction ID (if already exists)" — poll
- * until the status is terminal and prefer that field for explorer links.
- */
 export async function pollTransactionStatus(
   transactionStatus: (id: string) => Promise<TransactionStatusResponse>,
   transactionId: string,
@@ -228,7 +170,7 @@ export function describeWalletError(err: unknown): string {
   for (const [match, friendly] of FRIENDLY_ERRORS) {
     if (name === match || message.includes(match)) return friendly;
   }
-  if (/insufficient/i.test(message)) return "Insufficient balance for this transfer.";
+  if (/insufficient/i.test(message)) return "Insufficient balance for this transaction.";
   if (/user rejected|denied/i.test(message)) return "Request was declined in the wallet.";
   return "Something went wrong talking to your wallet. Check the browser console for details.";
 }

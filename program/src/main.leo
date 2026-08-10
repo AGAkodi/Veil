@@ -1,91 +1,62 @@
-// veil_rails_v2.aleo — private institutional payment rails.
+// veil_attest.aleo — verifiable AI attestation protocol.
 //
-// Two surfaces:
-//   private_transfer  — move value between parties without publishing amount,
-//                       sender, or recipient
-//   prove_compliance  — prove a counterparty is absent from a sanctions list
-//                       without publishing which counterparty was screened
+// Gated submission and selective disclosure verification.
 
-program veil_rails_v2.aleo {
+// The single trusted oracle address allowed to submit attestations.
+const ORACLE_ADDRESS: address = aleo15m50rvhx0glq0hjv807c2t0z40et9ljmvdjrqv8f4pr8evzs2qysfnv2un;
 
-    // Deployment is final. Payment rails whose logic can be swapped out later
-    // are not payment rails an institution can underwrite.
+program veil_attest.aleo {
+
+    // Deployment is final and cannot be upgraded.
     @noupgrade
     constructor() {}
 
-    // A private balance held by `owner`. Aleo encrypts the record to the
-    // owner's view key, so no field here is publicly readable.
-    //
-    // There is deliberately no `recipient` field. The recipient of a transfer
-    // *is* the owner of the record it produces; storing it separately would be
-    // redundant and would add a correlation handle for no benefit.
-    record PaymentRecord {
-        owner: address,
-        amount: u64,
-        sender: address,
-        memo: field,
+    // An attestation record. Owned by the party who has disclosure rights.
+    // All record fields are private by default unless exposed in transitions.
+    record Attestation {
+        owner: address,       // whoever holds the right to disclose this
+        input_hash: field,    // commitment to the (private, off-chain) input
+        verdict: bool,
+        oracle: address,      // which agent/oracle produced this
     }
 
-    // Bootstrap a spendable record so testnet has something to move.
-    // Demo scaffolding — real value would be bridged in from credits.aleo.
-    fn issue(recipient: address, amount: u64, memo: field) -> PaymentRecord {
-        return PaymentRecord {
-            owner: recipient,
-            amount: amount,
-            sender: std::ctx::caller(),
-            memo: memo,
+    // Submit an attestation. Gated to the ORACLE_ADDRESS.
+    // owner: the target party who will own the disclosure rights.
+    // input_hash: private commitment to avoid brute-forcing the input space.
+    // verdict: public boolean representing the oracle's verdict.
+    fn submit_attestation(
+        public owner: address,
+        private input_hash: field,
+        public verdict: bool
+    ) -> Attestation {
+        // Enforce that only the trusted oracle can sign and submit the attestation.
+        assert_eq(std::ctx::signer(), ORACLE_ADDRESS);
+
+        return Attestation {
+            owner: owner,
+            input_hash: input_hash,
+            verdict: verdict,
+            oracle: std::ctx::signer(),
         };
     }
 
-    // Consume the caller's record; emit the recipient's record and the change.
-    //
-    // Exact-amount transfers produce a zero-value change record. That is
-    // intentional: suppressing it would make the output count depend on the
-    // amount, which leaks whether the sender drained the record.
-    fn private_transfer(
-        payment: PaymentRecord,
-        recipient: address,
-        amount: u64
-    ) -> (PaymentRecord, PaymentRecord) {
-        // The subtraction below would trap on underflow anyway, but asserting
-        // first names the failure instead of dying inside arithmetic.
-        assert(amount <= payment.amount);
+    // Verify the commitment hash inside an attestation.
+    // Consumes the input record and outputs a recreated record to allow multiple checks.
+    // claimed_hash: public hash being verified against the private record hash.
+    fn verify_attestation(
+        att: Attestation,
+        public claimed_hash: field
+    ) -> (bool, Attestation) {
+        let matches: bool = (att.input_hash == claimed_hash);
 
-        let to_recipient: PaymentRecord = PaymentRecord {
-            owner: recipient,
-            amount: amount,
-            sender: payment.owner,
-            memo: payment.memo,
+        // Recreate the attestation record to support read-like semantics.
+        let output_att: Attestation = Attestation {
+            owner: att.owner,
+            input_hash: att.input_hash,
+            verdict: att.verdict,
+            oracle: att.oracle,
         };
 
-        let change: PaymentRecord = PaymentRecord {
-            owner: payment.owner,
-            amount: payment.amount - amount,
-            sender: payment.sender,
-            memo: payment.memo,
-        };
-
-        return (to_recipient, change);
-    }
-
-    // Sanctions screening.
-    //
-    // The list is public by design — real sanctions lists are published, so
-    // hiding them buys nothing. What must stay private is *who was screened*,
-    // and that is the private input here.
-    //
-    // Linear scan, so cost grows with the list. A Merkle-root version would
-    // fix that; it is a stretch goal, not a port from ARCANUM (whose circuit
-    // scans a public array too, despite what its README claims).
-    fn prove_compliance(counterparty: address, public sanctions: [field; 10]) -> bool {
-        let subject: field = BHP256::hash_to_field(counterparty);
-        let clean: bool = true;
-
-        for i: u8 in 0u8..10u8 {
-            clean = clean && (subject != sanctions[i]);
-        }
-
-        assert(clean);
-        return clean;
+        return (matches, output_att);
     }
 }

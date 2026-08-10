@@ -176,30 +176,28 @@ export default function ConnectPage() {
       {status === "connected" && (
         <div className="mt-10 grid gap-px bg-rule sm:grid-cols-2">
           <Link
-            href="/app/send"
+            href="/app/attest"
             className="link-arrow group block bg-cream px-6 py-6 sm:pr-8"
           >
-            <p className="display text-[1.25rem]">Send a payment</p>
+            <p className="display text-[1.25rem]">Submit an attestation</p>
             <p className="mt-2 text-[0.8125rem] text-ink-soft">
-              Recipient, amount, and an inline compliance check before it
-              submits.
+              Commit model inputs, verdicts, and assign disclosure rights to any address.
             </p>
             <span className="mt-4 inline-flex items-center gap-1.5 text-[0.8125rem] font-semibold text-ink">
-              Go to Send
+              Go to Attest
               <ArrowIcon />
             </span>
           </Link>
           <Link
-            href="/app/compliance"
+            href="/app/verify"
             className="link-arrow group block bg-cream px-6 py-6 sm:pl-8"
           >
-            <p className="display text-[1.25rem]">Check compliance status</p>
+            <p className="display text-[1.25rem]">Verify an attestation</p>
             <p className="mt-2 text-[0.8125rem] text-ink-soft">
-              Screen any address against the published sanctions list on its
-              own.
+              Verify any private attestation record against its commitment hash in zero-knowledge.
             </p>
             <span className="mt-4 inline-flex items-center gap-1.5 text-[0.8125rem] font-semibold text-ink">
-              Go to Compliance
+              Go to Verify
               <ArrowIcon />
             </span>
           </Link>

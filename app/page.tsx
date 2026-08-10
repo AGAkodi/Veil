@@ -5,18 +5,18 @@ import { OriginFigure } from "./components/OriginFigure";
 const guarantees = [
   {
     n: "01",
-    title: "Payments settle as records, not entries",
-    body: "A transfer consumes the sender's record and emits two new ones — the recipient's balance and the sender's change. Amount, sender, and recipient are inputs to a proof, never rows in a public ledger.",
+    title: "AI verdicts settle as records, not entries",
+    body: "An attestation record is encrypted to the owner's view key. The off-chain model input description, hash, and verdict are inputs to a proof, never public ledger rows.",
   },
   {
     n: "02",
-    title: "Compliance proves itself",
-    body: "Sanctions screening runs against a published, on-chain list — public so the list itself stays auditable. The transition proves the counterparty is absent from it without the address ever appearing on-chain. A failed check means the transfer never executes.",
+    title: "Selective disclosure is native",
+    body: "Verification consumes the attestation record and returns a recreated record alongside a match verdict in zero-knowledge. This proves commitment validity without exposing the input hash on-chain until verification.",
   },
   {
     n: "03",
     title: "The explorer shows a nullifier",
-    body: "What a competitor watching the chain sees is a transaction hash and a spent-record marker. Not the amount, not the parties, not the direction of flow. There is nothing further to withhold.",
+    body: "What an observer sees on-chain is a transaction hash and spent-record markers. The input commitments and verdicts remain private to the disclosure holder until verified.",
   },
 ];
 
@@ -62,23 +62,21 @@ export default function Home() {
       <main className="flex-1">
         {/* ── Hero ─────────────────────────────────────────────── */}
         <section className="mx-auto w-full max-w-6xl px-6 pt-14 pb-24 sm:px-10 sm:pt-24 sm:pb-32">
-          <p className="eyebrow">Private institutional payment rails</p>
+          <p className="eyebrow">Verifiable AI Attestation</p>
           <h1 className="display mt-6 max-w-4xl text-[2.5rem] sm:text-[4rem] lg:text-[4.75rem]">
-            Institutions cannot settle on a ledger that{" "}
-            <span className="display-accent">publishes every move.</span>
+            AI agents cannot attest on a ledger that{" "}
+            <span className="display-accent">publishes every input.</span>
           </h1>
           <div className="prose-body mt-9 grid max-w-4xl gap-x-14 gap-y-5 md:grid-cols-2">
             <p>
-              Every transfer on a public chain names the sender, the recipient,
-              and the amount. For a bank or a fintech, that is not a tradeoff to
-              manage — it is a disclosure to every counterparty and competitor
-              watching the address, in real time, forever.
+              Running AI evaluations on public ledgers exposes private training data,
+              medical scans, or proprietary code. For enterprises, that is not a tradeoff
+              to manage — it is a leakage vector to competitors and counterparties.
             </p>
             <p>
-              Veil settles those payments on Aleo, where records are encrypted
-              at the protocol layer. Validity and sanctions compliance are
-              proven in zero knowledge. The chain confirms the payment happened
-              and learns nothing else about it.
+              Veil records AI agent verdicts on Aleo, where input commitments are encrypted
+              at the protocol layer. Verification and binding proofs are generated in zero
+              knowledge. The chain confirms the attestation happened and learns nothing else.
             </p>
           </div>
           <div className="mt-11 flex flex-wrap items-center gap-x-8 gap-y-4">
@@ -109,10 +107,9 @@ export default function Home() {
               </h2>
               <div className="prose-body mt-7 space-y-5 max-w-lg">
                 <p>
-                  Its first job was simple: let an institution pay a
-                  counterparty on Stellar without publishing the amount or the
-                  parties. Two Noir circuits, a Soroban verifier, a pool to hold
-                  the value. It worked.
+                  Its first job was simple: let an institution check compliance and make a
+                  payment on Stellar without publishing the details. Two Noir circuits, a
+                  Soroban verifier, a pool to hold value. It worked.
                 </p>
                 <p>
                   Repeated use exposed a larger problem. The privacy was ours,
@@ -217,7 +214,7 @@ export default function Home() {
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-6 py-9 sm:flex-row sm:items-center sm:justify-between sm:px-10">
           <span className="display text-[1.125rem]">Veil</span>
           <p className="text-[0.8125rem] text-ink-soft">
-            Private institutional payment rails on Aleo.
+            Verifiable AI Attestation on Aleo.
           </p>
           <span className="eyebrow">Aleo Testnet</span>
         </div>
