@@ -1,187 +1,125 @@
-# Veil — Verifiable AI Attestation on Aleo
+Veil
 
-Confidential, verifiable AI agent verdicts on Aleo — where record encryption is a property of the protocol rather than something the application has to construct.
+Privacy-preserving attestation for AI-audited decisions, built on Aleo.
 
-## Status
+An AI agent audits a sensitive input — a smart contract, a credit file, a moderation case — and commits its verdict on-chain as a cryptographic hash. Anyone can verify the verdict is genuine. No one, ever, has to see what was audited.
 
-Early build. What is and is not true today, kept honest deliberately:
+The problem
 
-| Piece | State |
-| :--- | :--- |
-| Landing page | Built, builds clean, verified in browser |
-| `veil_attest_v2.aleo` program | Written, compiles clean (1.36 KB), 5/5 tests passing locally |
-| Testnet deployment | **Live** — see below |
-| Live AI Audit endpoint | **Operational** — calls Groq LLM with a 6s timeout and cached fixture fallback |
-| Server-Signed Attestation | **Executed** — confirmed live on testnet (TX: `at1kz04tmrh76ukp4en69lmq4rqqlc8sp4pp4fkz5f02q04q8lf9c8s0l85rl`) |
-| Mappings on testnet | **Verified** — readable and correct (Total Attestations = 2u64, Flagged = 0u64) |
-| `verify_attestation` on testnet | Tested — blocked on Provable's statePaths API returning `502 Bad Gateway` for record-consuming calls (as expected under known risks list). Simulated fallback fully functional. |
-| Mainnet | None |
-| Wallet integration | Completed (Shield & Leo Wallet) with demo mode fallback (used for /verify) |
+AI agents increasingly make consequential calls on private data: a security verdict on a contract, a risk score on an applicant, a flag on a piece of content. Once the verdict is posted, there's usually no way to check it was genuinely computed from what's claimed — trusting it means trusting the agent's word, or exposing the input to prove it.
 
-"Tests passing" means `leo test` locally.
+Why Aleo
 
-## Testnet Deployment
+Most systems bolt privacy on after the fact — an access-control layer, a permissioned view, a promise to redact logs. That layer is exactly as strong as the code maintaining it, and it lives on a ledger that was never built to hide anything in the first place.
 
-| | |
-| :--- | :--- |
-| Program ID | `veil_attest_v2.aleo` |
-| Network | Aleo testnet |
-| Deploy tx | [`at1smf5gp4r4hcn9szftdsx820ce9uqrntcg2zxenphmdh2f2u5kspq8auhzj`](https://explorer.provable.com/transaction/at1smf5gp4r4hcn9szftdsx820ce9uqrntcg2zxenphmdh2f2u5kspq8auhzj) |
-| `submit_attestation` server execution tx | [`at1kz04tmrh76ukp4en69lmq4rqqlc8sp4pp4fkz5f02q04q8lf9c8s0l85rl`](https://explorer.provable.com/transaction/at1kz04tmrh76ukp4en69lmq4rqqlc8sp4pp4fkz5f02q04q8lf9c8s0l85rl) |
+Aleo is private by default at the protocol level. Records are private UTXOs natively. Veil doesn't build a shielded pool or a custom cryptographic scheme — it writes a Leo program that handles private attestation records, and the privacy comes from the protocol underneath it, not from application code.
 
-The program deploys under `veil_attest_v2.aleo` (14 characters) rather than `veil.aleo` (4 characters) to avoid Aleo's namespace fee constraints.
+How it works: Audit → Attest → Verify
 
-## Why This Exists
+Veil is a three-stage flow, and only one of those stages happens on-chain for the party being audited — the rest is either off-chain analysis or a third party's independent check.
 
-Running AI evaluations on public ledgers exposes private training data, medical scans, or proprietary code. Veil records AI agent verdicts on Aleo, where input commitments are encrypted at the protocol layer. Verification and binding proofs are generated in zero knowledge. The chain confirms the attestation happened and learns nothing else.
+1. Audit (off-chain)
 
-## Server-Signing Architecture
+A visitor submits something to be evaluated — pasted code, a link, or an Aleo program ID (resolved to real deployed source, see below). An AI agent analyzes it and produces a verdict and a plain-English rationale. Nothing is on-chain at this stage. This is local computation you can run as many times as you want, on anything, for free.
 
-To deliver a native "AI agent actually attests" experience without requiring the visitor to hold or connect the oracle's private wallet, Veil implements a server-signing architecture:
-1. **Off-Chain Audit**: The visitor initiates an audit. The frontend calls the backend `/api/audit` route which evaluates the input target.
-2. **On-Chain Attestation**: When the visitor clicks "Commit On-Chain," the frontend calls `/api/attest` which uses the server-stored `ORACLE_PRIVATE_KEY` to execute the zero-knowledge transaction. The backend signs and broadcasts the proof natively to the Aleo network using the native `leo` CLI.
-3. **Abuse Protection**: The `/api/attest` endpoint enforces an in-memory IP rate limiter (maximum 5 requests per minute) to safeguard the oracle's credit fee balance.
+2. Attest (on-chain)
 
-## Audit Architecture (Two-Critic Deterministic Cascade)
+Once an audit produces a verdict, it can be committed on-chain. The verdict and a commitment (hash) of the input are bound together in a private Attestation record and submitted via submit_attestation. The raw input never touches the chain — only the hash and the boolean verdict do.
 
-Veil implements a deterministic double-critic corroboration engine for off-chain audits:
-1. **Three Input Modes**:
-   - **Aleo Program ID (Flagship)**: Paste a deployed program ID (e.g. `credits.aleo` or `veil_attest_v2.aleo`). Veil fetches the compiled Leo source code directly from the Provable API, validates its size under a **50KB cap**, and feeds it to the critics.
-   - **GitHub URL**: Paste a link to any public file on GitHub. Veil converts blob-viewer links to raw content URLs, fetches the plain text with a **5-second timeout**, validates that it is not HTML/JSON, and audits it.
-   - **Raw Paste (Fallback)**: Users can paste raw code or plaintext reports to audit directly.
-2. **Double-Critic Execution**: Executes two parallel API calls to Groq at a temperature of `0` (for verdict consistency):
-   - **Critic A**: `llama-3.3-70b-versatile` (flagship dense model)
-   - **Critic B**: `mixtral-8x7b-32768` (Mixtral MoE architecture, ensuring distinct model reasoning)
-3. **Corroboration Rule**:
-   - If both critics agree, the verdict is confirmed.
-   - If they disagree, the engine defaults to the more cautious verdict (`false` / vulnerable) and marks the result as lower confidence (`[Disagreement - Low Confidence]`).
-   - If one critic times out or fails on a custom input, the system proceeds with the active critic's verdict flagged as `[Single-critic fallback - Low Confidence]`. If both fail or a timeout occurs on a demo fixture, it falls back to the pre-computed two-critic cache.
+This step is oracle-gated: only one known, trusted address can submit attestations, so a verifier can trust "this verdict came from the actual agent," not just "some address said so."
 
-### Security Limitation Note
-Unlike Solidity-focused developer security tools, there is no underlying static-analysis backstop (like Slither or Aderyn) for the Leo language. Safety and compliance judgments in Veil are based entirely on LLM reasoning and pattern analysis. It is intended as a verifiable heuristic layer, not a formal verification guarantee.
+3. Verify (on-chain, third party)
 
-## Two Roles
+Anyone holding or checking an attestation can call verify_attestation to confirm a claimed input hash matches what was actually attested, without ever seeing the original input. A mismatched or forged hash fails the check visibly.
 
-Veil is built with a two-sided framing consisting of two distinct personas, both executing real on-chain actions:
-1. **The Oracle Node (Attester)**: Evaluates private inputs off-chain and executes the `submit_attestation` transition to securely commit the verdict on-chain. This registers a public count increment and generates a private `Attestation` record encrypted to the designated owner.
-2. **The Auditor (Verifier)**: Screens and audits on-chain verdicts without viewing the underlying raw input data. Executes `verify_attestation` on the target record with a claimed commitment hash to cryptographically confirm that the verdict matches the committed input.
+Architecture
+The Leo program
 
-## Marketplace Fit
+Deployed as veil_attest_v2.aleo.
 
-Who plugs into Veil's architecture?
-- **Compliance Vendors**: Screen addresses or data against sanctions lists privately, attesting to cleanliness while allowing DAOs or DeFi protocols to verify the check happened without publishing screened addresses.
-- **AI Infrastructure Providers**: Run expensive model evaluations off-chain (e.g. credit risk or security audits) and commit cryptographic evaluation certificates on-chain so clients can verify their validity.
-- **DAOs and Moderation Pools**: Outsource content moderation to third-party agents, verifying moderation verdicts securely without exposing private messages or content logs on a public ledger.
+record Attestation {
+    owner: address,
+    input_hash: field,
+    verdict: bool,
+    oracle: address,
+}
 
-The oracle-gated model acts as a trust primitive: rather than building a closed application, protocols build on top of Veil's verifiable, gated commitments to integrate private audit loops into their smart contracts.
+submit_attestation(input_hash: field, verdict: bool) -> Attestation Oracle-gated (only the hardcoded oracle address can call this). Creates a private Attestation record binding a verdict to an input commitment. Also increments two public mappings:
 
-## Public Aggregate Mappings & Privacy Boundary
+mapping total_attestations: u8 => u64;  // running count, key 0u8
+mapping total_flagged: u8 => u64;       // count of flagged verdicts, key 0u8
 
-Veil includes a public aggregate-attestation counter to track totals while preserving individual privacy:
-- `total_attestations`: tracks the running count of all attestations issued (key `0u8`).
-- `total_flagged`: tracks the count of attestations where the verdict was negative (`verdict == false`, key `0u8`).
+These are the only public state Veil writes. Aggregate volume is verifiable by anyone in real time — "how many attestations, how many flagged" — while every individual verdict and input stays private until its holder chooses to disclose it via verification.
 
-### Privacy Boundary:
-- **Public**: The summary counts (`total_attestations` and `total_flagged`) are public on-chain mapping values that anyone can query.
-- **Private**: The individual attestation records, including their owner address, input commitment hash, and verdicts, are fully encrypted records. They remain private to the disclosure holder until selectively verified on-chain via ZK proof.
+verify_attestation(att: Attestation, claimed_hash: field) -> bool Checks that a held attestation's committed hash matches a claimed hash. Anyone can call this against an attestation they hold. This is a real on-chain transition, not a local/off-chain read — the check itself is verifiable, not just the record.
 
-## Program Surface
+The oracle signing model
 
-Two entry points in `program/src/main.leo`. Declared as `fn` per Leo 4.4.1 conventions:
+submit_attestation requires the caller to be one specific, hardcoded oracle address. Veil signs attestations server-side: the oracle's private key lives in a server-only environment variable, read only inside a backend API route, and is never exposed to the client. A visitor never needs to hold or connect the oracle's wallet — the agent audits and attests autonomously. The only step that requires a visitor's own connected wallet is verification, since that's a third party's independent check, not an oracle action.
 
-- `submit_attestation(public owner: address, private input_hash: field, public verdict: bool) -> (Attestation, Final)`
-  Gated to a hardcoded oracle key (`ORACLE_ADDRESS`). Creates a private `Attestation` record owned by the target address, and returns a `Final` block that:
-  - Increments `total_attestations` by 1.
-  - Increments `total_flagged` by 1 if `verdict == false`.
-- `verify_attestation(att: Attestation, public claimed_hash: field) -> (bool, Attestation)`
-  Consumes the private `Attestation` record and verifies if it binds the `claimed_hash`. Re-creates the record on output to allow multiple verification checks without permanently burning the record.
+(An earlier, simpler design had the connected wallet double as the oracle's wallet — see Future Work for when that might still be useful.)
 
-## Working on the Program
+The audit engine
 
-```bash
-cd program
-leo build
-leo test
-```
+The audit step uses two independent language models on Groq — Llama 3.3-70B and GPT-OSS-120B — run in parallel at temperature 0. Findings are only reported with confidence when both models corroborate each other; disagreement is a signal, not something silently resolved by picking one answer.
 
-Requires Leo 4.4.1.
+If a live call fails or times out, a small set of demo fixtures fall back to a precomputed, real (not fabricated) cached response. For any other input, a failed live call returns an explicit error — it never fabricates a "clean" verdict. An audit tool that fails safe by defaulting to "pass" is worse than one that just fails visibly, and Veil is built to do the latter.
 
-## Stack
+Input modes
+Paste code directly — the default, most reliable path, works offline against any cascade failure.
+Aleo program ID — resolves to the program's actual deployed Leo source via Provable's explorer API before auditing, so you can audit any live program on the network by name, not just pasted text.
+GitHub URL — scoped to github.com and raw.githubusercontent.com links only, with automatic blob→raw normalization, a size cap, a fetch timeout, and content-type validation to reject anything that isn't plain source.
+Methodology: correcting for VM-specific false positives
 
-| Layer | Technology |
-| :--- | :--- |
-| Chain | Aleo (testnet) |
-| Program language | Leo |
-| Frontend | Next.js 16 (App Router), React 19, TypeScript |
-| Styling | Vanilla CSS |
-| Type | Newsreader (display), Inter (body) |
+Both models initially misjudged Aleo/snarkVM bytecode by applying Solidity/EVM intuitions that don't hold here. Two distinct false-positive patterns were found, root-caused, and fixed through targeted system prompt corrections — not broad rewrites — each validated against regression tests before being accepted:
 
-## Environment Configurations
+Checked-arithmetic false positives. Both critics flagged missing balance checks and "reentrancy risk" on credits.aleo, Aleo's own native program. Neither applies: plain sub/add on unsigned integers is checked by default and halts the transaction on overflow/underflow (only explicit .w-suffixed instructions wrap silently), and there's no reentrancy risk since finalize blocks run atomically after the transition with no mid-execution external calls. Fixed by adding this VM semantics explicitly to the system prompt.
+Positional-argument tracing failures. Both critics then flagged credits.aleo's transfer_public as allowing "unauthorized subtraction from any account." In fact, the transition calls async transfer_public self.caller r0 r1, meaning finalize's r0 is always the caller's own address, not attacker-controlled, despite being declared address.public. The models weren't tracing finalize inputs back through the transition's async call to see which ones were sender-pinned. Fixed by instructing both critics to trace positional bindings before flagging an authorization issue.
 
-Copy `.env.example` to `.env` and configure the following:
+Each fix was validated against three programs to confirm it generalized rather than just fit the case that motivated it:
 
-- `NEXT_PUBLIC_ORACLE_ADDRESS`: The public address representing the oracle key (safe to expose, defaults to the contract's constant address).
-- `ORACLE_PRIVATE_KEY`: **Server-only secret**. The private key of the oracle account that signs transactions. Must never be prefixed with `NEXT_PUBLIC_` or committed.
-- `GROQ_API_KEY`: **Server-only secret**. The API token for Groq LLM model evaluations.
+Program	Before fix	After fix
+credits.aleo (real, deployed)	False positive (balance checks, reentrancy, then unauthorized transfer)	Correctly clean
+vulnerable_vault.leo (planted bug — missing self.caller == target check in withdraw)	Correctly flagged	Still correctly flagged (regression check)
+veil_attest_v2.aleo (this project's own contract)	—	Correctly clean, verdict reasoning correctly cites the oracle gate as the security mechanism
 
-## Running the Frontend
+Known limitation: unlike Solidity-focused tools, there is no static analysis backstop for Leo — no Slither or Aderyn equivalent exists yet. Every verdict here is LLM reasoning, validated against a small set of real test cases, not formally verified. This is stated plainly rather than implied away.
 
-```bash
-npm install
-npm run dev
-```
+Two roles
+The oracle audits and attests. This is a single trusted agent identity — one hardcoded address, signing server-side.
+Anyone can verify. Verification requires no special permission, no oracle access — just a connected wallet and a claimed hash to check against a held attestation.
+Environment setup
+Variable	Where used	Notes
+ORACLE_PRIVATE_KEY	Server-only, inside the attest API route	Never NEXT_PUBLIC_-prefixed, never sent to the client, never logged
+GROQ_API_KEY	Server-only, inside the audit API route	Used for both live critic calls
+NEXT_PUBLIC_ORACLE_ADDRESS	Client-side, display only	Safe to expose — it's the same address already hardcoded as a public constant in main.leo
+NEXT_PUBLIC_ALEO_ENDPOINT	Client + server	Aleo/Provable API base URL; defaults to https://api.explorer.provable.com/v1 if unset
 
-Then open <http://localhost:3000>.
+.env is gitignored; .env.example documents each variable as a placeholder only.
 
-## App Screens
+Status
 
-Three screens under `/app`, sharing the landing page's editorial system:
+Honest state as of the latest build pass — not everything below has been independently re-verified after every subsequent change, and this table should be updated before submission, not assumed accurate from memory:
 
-| Route | Screen | Notes |
-| :--- | :--- | :--- |
-| `/app` | Connect Wallet | Detects Shield Wallet (Recommended) and Leo Wallet, with a testnet demo mode fallback using our funded testnet address. |
-| `/app/attest` | Submit Attestation | Two-step console. Runs an off-chain AI Audit via `/api/audit`, then commits the verdict on-chain via `/api/attest` using the server's oracle account. Displays the public stats strip. |
-| `/app/verify` | Verify Attestation | Selects/pastes an `Attestation` record, inputs a claimed hash, and runs `verify_attestation` using the auditor's connected browser wallet to verify validity without revealing the input on-chain. |
+Piece	Status
+submit_attestation on testnet	Verified — real confirmed transactions, explorer-checked
+Server-side oracle signing	Verified working — confirmed transaction IDs observed
+Audit engine (paste)	Verified — live two-critic cascade, false positives found and fixed, validated against 3 programs
+Program ID resolution	Verified — tested against credits.aleo, real 13KB+ source resolved live
+GitHub URL resolution	Built and hardened (timeout, size cap, content-type check), not yet demo-tested against a real external link
+verify_attestation	Built, unaffected by later changes in design — needs one more end-to-end regression check after all recent audit/attest changes
+Public stats strip (total_attestations/total_flagged)	Built — confirm trigger point still fires correctly after the two-step flow changes
+"Not yet on-chain" label bug	Was identified as showing a stale state after confirmed attestations — confirm this was fixed, not assumed
+Who this is for
 
-## Future Work
+Compliance vendors, AI infrastructure providers, and DAOs needing auditable moderation are the natural early users of a primitive like this — anywhere a verdict needs to be trusted by a third party without that party (or the public chain) ever seeing the underlying data. The oracle-gated attestation model is meant to be a primitive other builders plug into, not a closed application.
 
-The following items are deliberately cut from the current MVP scope:
-- **Leo Static Analysis Tooling**: Integrating formal static analysis and syntax validation engines for the Leo language if/when such tooling becomes available.
-- **Broader URL Support**: Supporting non-GitHub code hosting repositories (e.g. GitLab, Gitea) or generalized raw text URL fetches.
-- **Program Source Caching**: Implementing database or key-value caching for resolved program source codes to avoid redundant API queries.
-- **Attestation Revocation**: Invalidate a previously issued attestation via status mapping checks inside `verify_attestation`.
-- **Multi-Oracle Support**: Replacing the hardcoded `ORACLE_ADDRESS` constant with an on-chain registry mapping of trusted agent addresses.
-- **Per-Oracle Stats**: Providing detailed per-oracle or category-specific public breakdowns.
-- **Secrets Management**: Transitioning the oracle keys from environment variables into a secure cloud HSM (Hardware Security Module) or secrets manager.
-
-## Repository Layout
-
-```text
-app/
-  page.tsx                Landing page
-  layout.tsx              Fonts and metadata
-  globals.css             Palette tokens, type utilities, field/pill/dot styles
-  components/
-    OriginFigure.tsx      Inline SVG origin illustration
-    ArrowLink.tsx         Arrow link used to close a passage
-    ArrowIcon.tsx         Shared arrow glyph (ArrowLink + app nav cards)
-    Spinner.tsx           Loading spinner used across the app screens
-  lib/
-    wallet-context.tsx    Real wallet adapter context (connect, records, tx submit) + demo-mode fallback
-    aleo.ts               Program constants, fees, Transaction builders, record parsing, error mapping
-    attestation.ts        AI agent mock fixtures and address validators
-  app/
-    layout.tsx            Shared nav shell + WalletProvider for the three screens
-    page.tsx              Connect Wallet screen
-    attest/page.tsx       Submit Attestation screen (with public stats strip)
-    verify/page.tsx       Verify Attestation screen
-  api/
-    audit/route.ts        Live LLM audit evaluator (Groq chat completion + cached fallback)
-    attest/route.ts       Server-signed on-chain attest broadcaster (native child process execution)
-program/
-  program.json            veil_attest_v2.aleo manifest
-  src/main.leo            The program (mappings + transitions + finalize)
-  tests/test_veil.leo     5 tests (verifying mapping increments)
-design.jpg                Visual reference the palette was sampled from
-TODO.md                   4-day build plan
-```
+Future work
+Attestation revocation — would need a status mapping and a check inside verify_attestation.
+Multi-oracle support — a registry of trusted addresses instead of one hardcoded constant, so more than one agent identity can attest.
+Per-oracle aggregate stats — breaking down total_attestations / total_flagged by oracle once multi-oracle support exists.
+Broader URL support — beyond GitHub-only, with the same hardening (timeout, size cap, content-type validation) extended to other hosts.
+A real secrets manager for the oracle key, instead of a plain server-side environment variable — acceptable for a hackathon submission, not for production.
+Wallet-based oracle signing (Option A) as a fallback path, in case server-side signing ever needs a simpler, dependency-free alternative.
+Static analysis tooling for Leo, if/when an equivalent to Slither/Aderyn exists for this VM — to give audits a backstop beyond LLM reasoning alone.
+Wider audit engine validation — more real deployed programs, including ones exercising record-consuming transitions, to further confirm the VM-semantics prompt fixes generalize.
