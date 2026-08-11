@@ -42,12 +42,23 @@ To deliver a native "AI agent actually attests" experience without requiring the
 2. **On-Chain Attestation**: When the visitor clicks "Commit On-Chain," the frontend calls `/api/attest` which uses the server-stored `ORACLE_PRIVATE_KEY` to execute the zero-knowledge transaction. The backend signs and broadcasts the proof natively to the Aleo network using the native `leo` CLI.
 3. **Abuse Protection**: The `/api/attest` endpoint enforces an in-memory IP rate limiter (maximum 5 requests per minute) to safeguard the oracle's credit fee balance.
 
-## Audit Architecture (Groq LLM)
+## Audit Architecture (Two-Critic Deterministic Cascade)
 
-Live audits run against Groq's LLM API using the `llama3-8b-8192` model at a temperature of `0` to guarantee consistent verdicts for duplicate inputs.
-To ensure high demo reliability:
-- A strict **6-second abort timeout** is enforced on the live API call.
-- If the live API call times out or throws an error (e.g. rate limits or key configuration issues), the backend automatically intercept-routes to return a pre-analyzed cached rationale from the local `app/lib/attestation.ts` fixtures.
+Veil implements a deterministic double-critic corroboration engine for off-chain audits:
+1. **Three Input Modes**:
+   - **Aleo Program ID (Flagship)**: Paste a deployed program ID (e.g. `credits.aleo` or `veil_attest_v2.aleo`). Veil fetches the compiled Leo source code directly from the Provable API, validates its size under a **50KB cap**, and feeds it to the critics.
+   - **GitHub URL**: Paste a link to any public file on GitHub. Veil converts blob-viewer links to raw content URLs, fetches the plain text with a **5-second timeout**, validates that it is not HTML/JSON, and audits it.
+   - **Raw Paste (Fallback)**: Users can paste raw code or plaintext reports to audit directly.
+2. **Double-Critic Execution**: Executes two parallel API calls to Groq at a temperature of `0` (for verdict consistency):
+   - **Critic A**: `llama-3.3-70b-versatile` (flagship dense model)
+   - **Critic B**: `mixtral-8x7b-32768` (Mixtral MoE architecture, ensuring distinct model reasoning)
+3. **Corroboration Rule**:
+   - If both critics agree, the verdict is confirmed.
+   - If they disagree, the engine defaults to the more cautious verdict (`false` / vulnerable) and marks the result as lower confidence (`[Disagreement - Low Confidence]`).
+   - If one critic times out or fails on a custom input, the system proceeds with the active critic's verdict flagged as `[Single-critic fallback - Low Confidence]`. If both fail or a timeout occurs on a demo fixture, it falls back to the pre-computed two-critic cache.
+
+### Security Limitation Note
+Unlike Solidity-focused developer security tools, there is no underlying static-analysis backstop (like Slither or Aderyn) for the Leo language. Safety and compliance judgments in Veil are based entirely on LLM reasoning and pattern analysis. It is intended as a verifiable heuristic layer, not a formal verification guarantee.
 
 ## Two Roles
 
@@ -135,10 +146,12 @@ Three screens under `/app`, sharing the landing page's editorial system:
 ## Future Work
 
 The following items are deliberately cut from the current MVP scope:
+- **Leo Static Analysis Tooling**: Integrating formal static analysis and syntax validation engines for the Leo language if/when such tooling becomes available.
+- **Broader URL Support**: Supporting non-GitHub code hosting repositories (e.g. GitLab, Gitea) or generalized raw text URL fetches.
+- **Program Source Caching**: Implementing database or key-value caching for resolved program source codes to avoid redundant API queries.
 - **Attestation Revocation**: Invalidate a previously issued attestation via status mapping checks inside `verify_attestation`.
 - **Multi-Oracle Support**: Replacing the hardcoded `ORACLE_ADDRESS` constant with an on-chain registry mapping of trusted agent addresses.
 - **Per-Oracle Stats**: Providing detailed per-oracle or category-specific public breakdowns.
-- **Live Model Arbitrary Input**: Enabling live model evaluations for user-typed raw texts (currently restricted to fixture categories to guarantee cached fallback safety).
 - **Secrets Management**: Transitioning the oracle keys from environment variables into a secure cloud HSM (Hardware Security Module) or secrets manager.
 
 ## Repository Layout

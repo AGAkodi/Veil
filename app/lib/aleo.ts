@@ -192,3 +192,33 @@ export async function fetchMappingValue(mappingName: string, key: string): Promi
     return 0;
   }
 }
+
+/**
+ * Fetches the raw Leo source code for a deployed program from the Aleo network.
+ */
+export async function fetchProgramSource(programId: string): Promise<string> {
+  const normalized = programId.trim().toLowerCase();
+  if (!normalized) {
+    throw new Error("Program ID is empty");
+  }
+  const fullProgramId = normalized.endsWith(".aleo") ? normalized : `${normalized}.aleo`;
+  
+  // Use endpoint from environment or fallback
+  const endpoint = process.env.NEXT_PUBLIC_ALEO_ENDPOINT || "https://api.explorer.provable.com/v1";
+  const url = `${endpoint}/testnet/program/${fullProgramId}`;
+  
+  const res = await fetch(url);
+  if (res.status === 404) {
+    throw new Error("Program not found");
+  }
+  if (!res.ok) {
+    throw new Error(`Explorer API error (HTTP ${res.status})`);
+  }
+  
+  const json = await res.json();
+  if (typeof json !== "string") {
+    throw new Error("Invalid program source format received from API");
+  }
+  return json;
+}
+

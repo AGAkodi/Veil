@@ -29,6 +29,14 @@ export default function AttestPage() {
   const [inputHash, setInputHash] = useState("");
   const [verdict, setVerdict] = useState<boolean>(true);
 
+  // Input Mode: 'paste' | 'program' | 'url'
+  const [inputMode, setInputMode] = useState<"paste" | "program" | "url">("paste");
+
+  // Resolution states
+  const [resolutionRunning, setResolutionRunning] = useState(false);
+  const [resolutionError, setResolutionError] = useState<string | null>(null);
+  const [resolvedCode, setResolvedCode] = useState<string | null>(null);
+
   // Step 1: Audit states
   const [auditRunning, setAuditRunning] = useState(false);
   const [auditRationale, setAuditRationale] = useState<string | null>(null);
@@ -61,6 +69,17 @@ export default function AttestPage() {
     }
   }, [address]);
 
+  function resetResolutionAndAudit() {
+    setInputHash("");
+    setAuditRationale(null);
+    setAuditSource(null);
+    setResolutionError(null);
+    setResolvedCode(null);
+    setSubmit("idle");
+    setSubmitError(null);
+    setOnchainTransactionId(null);
+  }
+
   function applyExample(key: keyof typeof ATTESTATION_EXAMPLES) {
     const ex = ATTESTATION_EXAMPLES[key];
     setInputText(ex.input);
@@ -71,11 +90,14 @@ export default function AttestPage() {
     setSubmit("idle");
     setSubmitError(null);
     setOnchainTransactionId(null);
+    setInputMode("paste");
+    setResolutionError(null);
+    setResolvedCode(null);
   }
 
   const ownerValid = isLikelyAleoAddress(owner);
   const textValid = inputText.trim().length > 0;
-  const readyToAttest = ownerValid && inputHash !== "" && submit === "idle" && !auditRunning;
+  const readyToAttest = ownerValid && inputHash !== "" && submit === "idle" && !auditRunning && !resolutionRunning;
 
   async function handleRunAudit() {
     if (!textValid) return;
@@ -86,12 +108,71 @@ export default function AttestPage() {
     setSubmit("idle");
     setSubmitError(null);
     setOnchainTransactionId(null);
+    setResolutionError(null);
+    setResolvedCode(null);
+
+    let codeToAudit = inputText.trim();
+
+    // Auto-detect program ID or URL in raw paste mode, or explicitly set
+    const isProgramPattern = /^[a-z0-9_]+\.aleo$/i.test(codeToAudit);
+    const isUrlPattern = /^https?:\/\//i.test(codeToAudit) || /^github\.com/i.test(codeToAudit) || /^raw\.githubusercontent\.com/i.test(codeToAudit);
+
+    const shouldResolveProgram = inputMode === "program" || (inputMode === "paste" && isProgramPattern && !isUrlPattern);
+    const shouldResolveUrl = inputMode === "url" || (inputMode === "paste" && isUrlPattern);
+
+    if (shouldResolveProgram) {
+      setResolutionRunning(true);
+      try {
+        const res = await fetch("/api/resolve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "program", target: codeToAudit }),
+        });
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || "Failed to resolve program source.");
+        }
+        const data = await res.json();
+        codeToAudit = data.sourceCode;
+        setResolvedCode(codeToAudit);
+      } catch (err: any) {
+        setResolutionError(err.message || "Failed to resolve program.");
+        setAuditRunning(false);
+        setResolutionRunning(false);
+        return;
+      } finally {
+        setResolutionRunning(false);
+      }
+    } else if (shouldResolveUrl) {
+      setResolutionRunning(true);
+      try {
+        const res = await fetch("/api/resolve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "url", target: codeToAudit }),
+        });
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || "Failed to resolve URL.");
+        }
+        const data = await res.json();
+        codeToAudit = data.sourceCode;
+        setResolvedCode(codeToAudit);
+      } catch (err: any) {
+        setResolutionError(err.message || "Failed to resolve URL.");
+        setAuditRunning(false);
+        setResolutionRunning(false);
+        return;
+      } finally {
+        setResolutionRunning(false);
+      }
+    }
 
     try {
       const res = await fetch("/api/audit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: inputText }),
+        body: JSON.stringify({ text: codeToAudit }),
       });
       if (!res.ok) {
         throw new Error("Audit API returned an error status.");
@@ -104,7 +185,7 @@ export default function AttestPage() {
     } catch (err: any) {
       console.warn("[Audit] Failed live Groq call, using client fallback:", err);
       // Robust client fallback
-      const hash = computeSimpleHash(inputText);
+      const hash = computeSimpleHash(codeToAudit);
       setInputHash(hash);
       setVerdict(true);
       setAuditRationale("Local analysis completed successfully (Client-side fallback).");
@@ -165,6 +246,8 @@ export default function AttestPage() {
     setSubmit("idle");
     setSubmitError(null);
     setOnchainTransactionId(null);
+    setResolutionError(null);
+    setResolvedCode(null);
   }
 
   return (
@@ -210,64 +293,150 @@ export default function AttestPage() {
               </span>
             </div>
 
+            {/* Input Mode Selector */}
+            <div className="flex border-b border-rule pb-2 mb-4 gap-4">
+              <button
+                type="button"
+                className={`pb-2 text-[0.8125rem] font-semibold border-b-2 transition-all ${
+                  inputMode === "paste"
+                    ? "border-ink text-ink"
+                    : "border-transparent text-ink-soft hover:text-ink"
+                }`}
+                onClick={() => {
+                  setInputMode("paste");
+                  resetResolutionAndAudit();
+                }}
+              >
+                Paste Code
+              </button>
+              <button
+                type="button"
+                className={`pb-2 text-[0.8125rem] font-semibold border-b-2 transition-all ${
+                  inputMode === "program"
+                    ? "border-ink text-ink"
+                    : "border-transparent text-ink-soft hover:text-ink"
+                }`}
+                onClick={() => {
+                  setInputMode("program");
+                  resetResolutionAndAudit();
+                }}
+              >
+                Aleo Program ID
+              </button>
+              <button
+                type="button"
+                className={`pb-2 text-[0.8125rem] font-semibold border-b-2 transition-all ${
+                  inputMode === "url"
+                    ? "border-ink text-ink"
+                    : "border-transparent text-ink-soft hover:text-ink"
+                }`}
+                onClick={() => {
+                  setInputMode("url");
+                  resetResolutionAndAudit();
+                }}
+              >
+                GitHub URL
+              </button>
+            </div>
+
             <div>
               <label className="field-label" htmlFor="input-text">
-                Evaluation Plaintext / Report Target
+                {inputMode === "paste"
+                  ? "Evaluation Plaintext / Report Target"
+                  : inputMode === "program"
+                    ? "Aleo Program ID"
+                    : "GitHub URL"}
               </label>
               <textarea
                 id="input-text"
                 className="field"
-                rows={3}
-                placeholder="Describe the scan, audit report, or text evaluated by the agent..."
+                rows={inputMode === "paste" ? 3 : 2}
+                placeholder={
+                  inputMode === "paste"
+                    ? "Describe the scan, audit report, or text evaluated by the agent..."
+                    : inputMode === "program"
+                      ? "e.g. credits.aleo or veil_attest_v2.aleo"
+                      : "e.g. https://github.com/facebook/react/blob/main/README.md"
+                }
                 value={inputText}
                 onChange={(e) => {
                   setInputText(e.target.value);
                   setInputHash("");
                   setAuditRationale(null);
                   setAuditSource(null);
+                  setResolutionError(null);
+                  setResolvedCode(null);
                 }}
               />
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-[0.75rem]">
-                <button
-                  type="button"
-                  className="font-semibold text-ink-soft hover:text-ink"
-                  onClick={() => applyExample("medical")}
-                >
-                  Load clean medical scan
-                </button>
-                <button
-                  type="button"
-                  className="font-semibold text-ink-soft hover:text-ink"
-                  onClick={() => applyExample("security")}
-                >
-                  Load vulnerable contract
-                </button>
-                <button
-                  type="button"
-                  className="font-semibold text-ink-soft hover:text-ink"
-                  onClick={() => applyExample("credit")}
-                >
-                  Load stable credit evaluation
-                </button>
-                <button
-                  type="button"
-                  className="font-semibold text-ink-soft hover:text-ink"
-                  onClick={() => applyExample("moderation")}
-                >
-                  Load flagged moderation review
-                </button>
-              </div>
+              {inputMode === "paste" && (
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-[0.75rem]">
+                  <button
+                    type="button"
+                    className="font-semibold text-ink-soft hover:text-ink"
+                    onClick={() => applyExample("medical")}
+                  >
+                    Load clean medical scan
+                  </button>
+                  <button
+                    type="button"
+                    className="font-semibold text-ink-soft hover:text-ink"
+                    onClick={() => applyExample("security")}
+                  >
+                    Load vulnerable contract
+                  </button>
+                  <button
+                    type="button"
+                    className="font-semibold text-ink-soft hover:text-ink"
+                    onClick={() => applyExample("credit")}
+                  >
+                    Load stable credit evaluation
+                  </button>
+                  <button
+                    type="button"
+                    className="font-semibold text-ink-soft hover:text-ink"
+                    onClick={() => applyExample("moderation")}
+                  >
+                    Load flagged moderation review
+                  </button>
+                </div>
+              )}
             </div>
+
+            {resolutionError && (
+              <div className="border border-accent bg-cream/50 p-4 text-[0.8125rem] text-accent font-semibold">
+                Error resolving program: {resolutionError}
+              </div>
+            )}
+
+            {resolvedCode && (
+              <div className="border border-rule bg-cream p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="field-label uppercase text-ink-soft">
+                    Resolved Source Code
+                  </span>
+                  <span className="text-[0.6875rem] font-semibold text-ink-soft">
+                    {resolvedCode.length} characters
+                  </span>
+                </div>
+                <pre className="text-[0.75rem] bg-paper p-3 overflow-x-auto max-h-40 border border-rule font-mono leading-relaxed select-all">
+                  {resolvedCode}
+                </pre>
+              </div>
+            )}
 
             <div className="pt-2">
               <button
                 type="button"
                 onClick={handleRunAudit}
-                disabled={!textValid || auditRunning}
+                disabled={!textValid || auditRunning || resolutionRunning}
                 className="inline-flex items-center gap-2 bg-ink px-5 py-2.5 text-[0.8125rem] font-semibold text-cream disabled:opacity-40"
               >
-                {auditRunning ? <Spinner /> : null}
-                {auditRunning ? "Running Live LLM Audit..." : "Run AI Audit"}
+                {(resolutionRunning || auditRunning) ? <Spinner /> : null}
+                {resolutionRunning
+                  ? "Resolving Program Source..."
+                  : auditRunning
+                    ? "Running Live LLM Audit..."
+                    : "Run AI Audit"}
               </button>
             </div>
 

@@ -1,95 +1,66 @@
-# Veil — Audit → Attest → Verify — Build TODO (Option B: Server-Signed Attestation)
+# Multi-Input Audit + Two-Critic Cascade — Build TODO
 
-The oracle key lives server-side. A visitor runs an audit, the backend signs and submits the attestation autonomously — no visitor ever needs to hold or connect the oracle's wallet. This is the stronger "AI agent actually attests" narrative, at the cost of real new backend work.
+Adds three ways to submit something for audit (raw paste, URL, Aleo program ID) and upgrades the audit engine from a single Groq call to a two-critic deterministic cascade, inspired by TryAnneal's audit pattern but scoped down to what's actually portable to Leo/Aleo.
 
-Scope: this file covers ONLY this addition. Core submit_attestation / verify_attestation contract logic, wallet connect (still used for /verify), deploy pipeline, and design tokens are already done — don't re-touch or re-verify them here unless a task explicitly says to.
+Scope: this file covers ONLY this addition. Everything from the prior Audit → Attest → Verify TODO (server-signed oracle, /api/attest, /verify, public stats strip, on-chain gating) is already built and untouched here — this TODO only changes what feeds into the audit step, and how the audit itself is computed.
 
-Fallback plan, stated up front: if server-side signing isn't reliably working by the end of Day 2 below, fall back to Option A (connected wallet = oracle wallet, no backend) rather than entering the final day with an unstable attest path. A working simpler flow beats a broken impressive one.
+Priority order, stated up front:
 
-## 0. Architecture — Confirmed: Server-Side Oracle Signing
-- [x] Oracle private key lives in a server-only env var, read only inside a Next.js API route, never sent to the client, never logged
-- [x] Flow: visitor runs audit (Step 1, local/off-chain) → frontend sends the verdict + input hash to a new API route → backend builds, signs, and broadcasts submit_attestation using the oracle's Account → backend returns tx status to frontend → frontend polls/displays confirmation
-- [x] /verify is unaffected — it still uses the visitor's own connected wallet, since that's a third party checking an attestation they hold, not an oracle action
+Raw paste — already works, no change needed, this is the fallback that must never break
+Aleo program ID → fetch deployed source — the flagship path, most Aleo-native, most reliable of the two new inputs
+Arbitrary URL — the riskiest addition; scope down to GitHub links only, and cut entirely first if time runs short
 
-## 1. Env Additions
-- [x] ORACLE_PRIVATE_KEY — server-only, not NEXT_PUBLIC_-prefixed. Only ever read inside the new API route (server context), never imported into any client-side file
-- [x] GROQ_API_KEY — server-only, not NEXT_PUBLIC_-prefixed. Used by the new audit API route to call Groq for the live model verdict; never exposed to the client
-- [x] NEXT_PUBLIC_ORACLE_ADDRESS — still useful client-side for display purposes (e.g. showing which address attestations come from), safe to expose since it's already the public hardcoded constant in main.leo
-- [x] Confirm .env.example documents ORACLE_PRIVATE_KEY and GROQ_API_KEY as placeholders only, never real values committed
-- [x] Confirm .gitignore already covers .env (per the existing pattern from earlier builds) — double check before either key exists anywhere near the repo
-- [x] Fund the oracle address with enough testnet credits to cover repeated attestation fees through the demo period — this account now pays fees automatically on every attest, monitor balance, don't let it run dry mid-demo
+## 1. Input Mode: Aleo Program ID (build this first of the two new modes)
+- [x] Confirm the exact Provable explorer API endpoint (not the mapping-read endpoint already used elsewhere in aleo.ts) — check Provable's API docs directly, don't assume a path
+- [x] Add a fetch function (e.g. fetchProgramSource(programId: string)) that calls this endpoint and returns raw Leo source
+- [x] Handle the "program not found" case explicitly — a mistyped or non-existent program ID should return a clear error, not a blank audit
+- [x] Handle large programs — decide a size cap consistent with whatever limit the audit/Groq call can reasonably handle, truncate or reject beyond that with a clear message rather than silently failing
+- [x] Detect input type automatically: if the pasted text matches the Aleo program ID pattern (e.g. name.aleo) rather than looking like source code, route it through this fetch path instead of auditing the literal string "veil_attest_v2.aleo" as if it were code
+- [x] Test against at least 2 real deployed programs, including veil_attest_v2.aleo itself if allowed, to confirm the fetch actually returns real source and not an error page or truncated response
 
-## 2. Backend — New Audit API Route (Groq, Live with Cached Fallback)
-- [x] Create /app/api/audit/route.ts — accepts the selected fixture/input, returns a verdict
-- [x] Live path: call Groq's API with the fixture's content, structured-output prompt (return strict JSON — verdict as bool + short rationale string), temperature 0 so the same fixture produces a consistent verdict across demo runs
-- [x] Set an explicit timeout on the live call (e.g. 5–8s) — if Groq doesn't respond in time, or errors, fall through to the cached path automatically, don't surface a raw error to the UI (6s timeout abort controller implemented)
-- [x] Cached fallback path: precompute and store one real Groq response per fixture (run it once during build/dev, save verdict + rationale into the fixtures file itself, e.g. app/lib/attestation.ts), used automatically if the live call fails or times out
-- [x] Response shape to the frontend should be identical whether it came from the live call or the cache — the UI shouldn't need to know which happened, though it's fine to show a subtle "cached" indicator for your own debugging if useful
-- [x] Compute the input hash from the fixture's actual content (not from the model's output) — this must stay stable regardless of whether the verdict came live or cached, since it's what gets bound on-chain in the attest step
-- [x] Test this route standalone first: confirm a live Groq call returns a usable verdict, confirm killing the network/API key still returns a correct cached verdict without crashing the route
+## 2. Input Mode: URL (GitHub-only scope, cut first if tight on time)
+- [x] Scope explicitly to GitHub links only for this build — detect github.com/.../blob/... URLs and auto-normalize them to raw.githubusercontent.com form before fetching (a raw "blob" URL returns an HTML page, not source, if fetched as-is)
+- [x] Reject or clearly flag non-GitHub URLs rather than attempting a best-effort fetch of anything — unpredictable content-types are a demo-day risk
+- [x] Add a size cap and a fetch timeout, same category of hardening as the Groq/attest calls already have
+- [x] Add content-type checking — if the response isn't plain text, fail clearly instead of feeding HTML/JSON into the audit cascade
+- [x] Decision checkpoint: if this isn't working reliably by the time program-ID input (#1) and the cascade upgrade (#3) are done, cut this mode entirely rather than shipping something flaky. Raw paste + program ID alone is a complete, demo-safe story without it
 
-## 3. Backend — New Attest API Route
-- [x] Create /app/api/attest/route.ts (or equivalent) — accepts verdict + input hash from the frontend's Step 1 result
-- [x] Load the oracle Account from ORACLE_PRIVATE_KEY using the Aleo SDK — this is new machinery, not a repurpose of the existing wallet-adapter code, since there's no browser extension involved here
-- [x] Build the submit_attestation transaction, sign it with the oracle account, broadcast it to testnet (signs and broadcasts securely via spawned native CLI process in 1m20s)
-- [x] Return transaction ID / status to the frontend so it can poll or display confirmation
-- [x] Error handling specific to this path — don't assume the existing describeWalletError taxonomy applies, since these are raw SDK/RPC failures (insufficient fee balance, network timeout, malformed input), not wallet-extension failures. Write a small equivalent for backend errors
-- [x] Basic abuse protection: rate-limit the route (even a simple in-memory per-IP limiter is enough for a hackathon build) — without this, anyone can spam the endpoint and drain the oracle's fee balance (sliding window 1m limiter implemented)
-- [x] Test this route standalone (e.g. via curl/Postman) before wiring the frontend to it — confirm a real attestation lands on testnet from a backend-only call, independent of any UI (TX verified: `at1kz04tmrh76ukp4en69lmq4rqqlc8sp4pp4fkz5f02q04q8lf9c8s0l85rl`)
 
-## 4. Frontend — /attest Two-Step Flow, Updated for Backend Signing
-- [x] Step 1 — Run Audit (now calls the live/cached Groq route, not a local mock):
-    - [x] Frontend calls /api/audit with the selected fixture, displays whatever verdict comes back (live or cached — indistinguishable to the UI)
-    - [x] Show a brief loading state while the live call attempts, in case it takes the full timeout window before falling back
-    - [x] Verdict + input hash from this response, nothing on-chain yet, explicitly labeled "not yet on-chain"
-- [x] Step 2 — Attest On-Chain (calls the backend, not a wallet):
-    - [x] No wallet-connection requirement for this step anymore — remove the "connect the oracle wallet" messaging from the earlier plan, it no longer applies
-    - [x] Button sends Step 1's verdict + input hash to /api/attest
-    - [x] Show a pending state while the backend signs and broadcasts
-    - [x] On response, display the transaction result (hash, nullifier) the same way as before
-    - [x] Update the public stats strip trigger to fire off the backend's confirmed response, not a wallet-adapter transactionStatus poll (the polling now happens server-side or via a lighter client poll against the returned tx ID — decide which and keep it consistent)
-    - [x] Update all copy that referenced "connect as the oracle" — the new story is "an autonomous agent audits and attests," so the UI should reflect that no visitor-side wallet action is needed for either step
+## 3. Audit Engine — Two-Critic Deterministic Cascade
 
-## 5. /verify — Confirm No Changes Needed
-- [x] Confirm this still works exactly as before — visitor's own connected wallet checks a held attestation via verify_attestation. Nothing about this addition touches this path
-- [x] Re-run this flow once after all changes land, purely as a regression check (shared program deploy, shared frontend build — worth a quick re-verify, not a rebuild)
+Upgrade /api/audit from a single Groq call to two independent critics, following the corroboration pattern (not a full port of TryAnneal — no Slither, no static analysis, no corpus matching, none of that applies to Leo or generic pasted text):
 
-## 6. Public Stats Strip
-- [x] No change to the mappings or the component itself
-- [x] Confirm the trigger point: fires after the backend confirms the attest transaction landed, not on button click, not on Step 1 completion
+- [x] Two Groq calls in parallel: one using Llama-3.3-70B, one using GPT-OSS-120B (or whichever two models are actually available on your Groq account) — architecturally distinct enough that they don't just repeat the same reasoning
+- [x] Both at temperature 0 — same reasoning as before, needed for consistent verdicts on repeated audits of the same input
+- [x] Corroboration rule: only report a finding as confirmed if both critics agree; if they disagree, decide how to surface that (e.g. lower-confidence flag, or default to the more cautious verdict) rather than silently picking one
+- [x] Merge outputs into a single verdict + explanation, same response shape as before so nothing downstream (hashing, attest, UI) needs to change
+- [x] Update the cached-fallback mechanism: now needs a cached response representing the merged two-critic output, not a single model's cached response, for each demo fixture
+- [x] Keep the existing timeout-and-fallback behavior, just applied to two calls instead of one — if either critic times out, decide: fall back entirely to cache, or proceed with the one critic that responded and flag lower confidence
+- [x] Re-test all existing demo fixtures through the upgraded cascade — confirm verdicts are stable and consistent, not just "different from before"
 
-## 7. Demo Fixtures
-- [x] Each of the 2-3 fixture categories needs a precomputed cached Groq response saved alongside it (run once for real, store the result) — this is what the audit route falls back to
-- [x] Confirm the fixtures still work end-to-end through the new path — audit produces a verdict (live or cached), that verdict is what actually gets sent to /api/attest, no mismatch between what's displayed in Step 1 and what's submitted in Step 2
+## 4. Frontend — Step 1 Input UI
+- [x] Add a mode selector or auto-detection on the Step 1 textarea: paste code / paste a program ID / paste a URL — decide whether this is an explicit toggle or automatic detection based on input shape (recommend explicit toggle, it's more demo-legible than silent detection)
+- [x] Show a distinct loading state for the resolution step (fetching program source, or fetching a URL) separate from the audit-cascade loading state — these are now two sequential async steps, not one
+- [x] Surface resolution errors clearly (program not found, URL fetch failed, unsupported content type) before ever attempting to audit — don't let a failed fetch silently turn into "auditing an empty string"
+- [x] Confirm the existing demo fixture buttons ("Load vulnerable contract" etc.) still work unchanged — they should bypass resolution entirely and go straight to audit, same as today
 
-## 8. Demo Script Update
-- [x] Beat 1: visitor runs audit on a fixture — live Groq call attempts, verdict appears (flag if it visibly took the fallback path during rehearsal, and decide whether that's acceptable to show or worth avoiding by pre-testing that fixture's live-call reliability), labeled "not yet on-chain"
-- [x] Beat 2: click Attest — backend signs and submits automatically, no wallet popup, transaction confirms, explorer shows only hash + bool, public counters tick up
-- [x] Beat 3: repeat briefly with a second fixture from a different category
-- [x] Beat 4: switch to /verify, connect a (any) wallet as a third party, verify one attestation — proof confirms binding, input never exposed
-- [x] Beat 5: attempt a forged verification with wrong hash from the auditor console — fails, visibly, on-screen
-- [x] Closing line: something like "the agent audits and attests on its own — verification is the only step that needs a human in the loop"
-- [x] Record video backup of the full sequence — this demo now depends on two live network calls (Groq + Aleo broadcast), a backup recording matters more here than in any earlier version of this build
+## 5. README Updates
+- [x] Document the three input modes and which is the flagship (program ID), which is the fallback (raw paste), which is scoped/cut (URL, GitHub-only if shipped)
+- [x] Document the two-critic cascade: which two models, why two instead of one, the corroboration rule
+- [x] Add an explicit limitation note: unlike Solidity-focused tools, there's no static-analysis backstop for Leo — safety judgments here are LLM reasoning only. State this plainly, don't imply more rigor than exists
+- [x] Update Future Work: static analysis tooling for Leo (if/when such tooling exists), broader URL support beyond GitHub, program-source caching to avoid re-fetching the same program repeatedly
 
-## 9. README Updates
-- [x] Document the server-signing architecture explicitly: oracle key lives server-side, audits and attestations happen without a visitor ever holding the oracle's key
-- [x] Document the audit architecture: live Groq call with a cached, precomputed fallback per fixture, temperature 0 for consistency
-- [x] Document ORACLE_PRIVATE_KEY, GROQ_API_KEY, and NEXT_PUBLIC_ORACLE_ADDRESS in the env setup section, with a clear warning that the first two must never be committed or exposed client-side
-- [x] Note the rate-limiting approach on /api/attest and why it exists (fee-balance protection)
-- [x] Keep the marketplace-fit paragraph; update Future Work to include: multi-oracle registry, attestation revocation, per-oracle stats, live-model support for arbitrary (non-fixture) inputs, and (if you want a stronger security story later) moving the oracle key into a proper secrets manager or HSM instead of a plain env var
 
 ## Explicitly Out of Scope
-- Wallet-based oracle signing (Option A) — superseded by this plan; kept only as the stated fallback if server-side signing isn't stable by end of Day 2
-- Live model support for arbitrary user-submitted input — audit stays scoped to the fixed set of demo fixtures, not open-ended input, to keep the Groq prompt and caching bounded
-- Attestation revocation — future work
-- Multi-oracle registry — future work
-- Proper secrets manager for either key — plain server-only env vars are acceptable for a hackathon submission, note as future hardening in README, don't build it now
-- Re-theming — flow/backend work only, locked design tokens unchanged
+- Slither/Aderyn or any Solidity static analysis — doesn't apply to Leo, not portable
+- Exploit corpus / pattern-similarity matching — EVM-specific dataset, not relevant here
+- A third critic (e.g. Gemini) — two is enough for the corroboration rule, adding a third is new scope for marginal benefit this close to deadline
+- Non-GitHub URL support — cut or scoped to GitHub-only, per #2
+- Any Mantle/ERC-8004/on-chain attestation reuse from TryAnneal — Veil has its own Aleo attestation contract already, no need for a second system
+- Program source caching — future work, not needed for a demo with a handful of repeated lookups
 
 ## Risk Watch-list
-- Two separate high-risk backend paths now exist: the attest signing route and the Groq audit route. Test each standalone before wiring them together, and before wiring either to the frontend
-- Groq latency or downtime during the actual demo is a real live-network risk — the cached fallback exists specifically for this, make sure it's actually wired in and tested (kill the API key temporarily during a dev test to confirm the fallback fires correctly), don't assume it works because the code looks right
-- Oracle fee balance can run out silently if the rate limiter isn't in place or the demo runs long — check balance before the live demo, not just once during development
-- Backend errors will look different from wallet errors (RPC timeouts, malformed broadcast responses, Groq API errors) — don't reuse describeWalletError assumptions, they won't match either new path
-- If Day 2 ends and /api/attest hasn't landed a real confirmed transaction independent of the frontend, invoke the fallback to Option A immediately rather than continuing to debug into the final day
-- Don't claim either backend path "works" without an independently checkable result — explorer link/tx ID for attest, logged actual Groq response (not assumed shape) for audit, every time
+- Program-ID resolution depends on Provable's API being up and the endpoint path being correct — confirm this early (task 1, item 1), don't discover it's wrong on demo day
+- Two parallel Groq calls instead of one roughly doubles both latency and the chance of a timeout — re-check the timeout window from the earlier cached-fallback work is still appropriate, it may need to increase slightly
+- If GitHub-link support ships, it's the least tested of the three modes by nature — don't feature it prominently in the demo unless it's been run successfully multiple times in a row beforehand
+- Don't claim any input mode "works" without watching a real, previously-untested program ID or URL go through the full flow — cached happy-path testing on the same one or two examples repeatedly can hide real failures
