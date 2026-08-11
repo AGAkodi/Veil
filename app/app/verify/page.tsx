@@ -218,6 +218,9 @@ export default function VerifyPage() {
 
   return (
     <div>
+      <div className="mb-6">
+        <img src="/logo.png" alt="Veil Logo" className="w-12 h-12 object-contain" />
+      </div>
       <p className="eyebrow">Auditor Console</p>
       <h1 className="display mt-5 max-w-lg text-[2.25rem] sm:text-[2.875rem]">
         Audit a committed <span className="display-accent">verdict.</span>

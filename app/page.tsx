@@ -39,7 +39,10 @@ export default function Home() {
   return (
     <>
       <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-7 sm:px-10">
-        <span className="display text-[1.375rem] tracking-tight">Veil</span>
+        <div className="flex items-center gap-2.5">
+          <img src="/logo.png" alt="Veil Logo" className="w-10 h-10 object-contain" />
+          <span className="display text-[1.375rem] tracking-tight">Veil</span>
+        </div>
         <nav className="hidden items-center gap-9 text-[0.8125rem] text-ink-soft sm:flex">
           <a className="hover:text-ink" href="#origin">
             Origin
@@ -58,10 +61,13 @@ export default function Home() {
           Open the app
         </Link>
       </header>
-
+ 
       <main className="flex-1">
         {/* ── Hero ─────────────────────────────────────────────── */}
         <section className="mx-auto w-full max-w-6xl px-6 pt-14 pb-24 sm:px-10 sm:pt-24 sm:pb-32">
+          <div className="mb-6">
+            <img src="/logo.png" alt="Veil Logo" className="w-16 h-16 object-contain" />
+          </div>
           <p className="eyebrow">Verifiable AI Attestation</p>
           <h1 className="display mt-6 max-w-4xl text-[2.5rem] sm:text-[4rem] lg:text-[4.75rem]">
             AI agents cannot attest on a ledger that{" "}

@@ -15,9 +15,9 @@ const newsreader = Newsreader({
 });
 
 export const metadata: Metadata = {
-  title: "Veil — Private institutional payment rails on Aleo",
+  title: "Veil — Verifiable AI Attestation on Aleo",
   description:
-    "Confidential, compliant payments where privacy is the protocol, not the application. Built on Aleo.",
+    "Confidential, verifiable AI agent verdicts on Aleo, where record encryption is a property of the protocol rather than something the application has to construct.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

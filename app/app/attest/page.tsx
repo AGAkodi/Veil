@@ -281,6 +281,9 @@ export default function AttestPage() {
 
   return (
     <div>
+      <div className="mb-6">
+        <img src="/logo.png" alt="Veil Logo" className="w-12 h-12 object-contain" />
+      </div>
       <p className="eyebrow">Oracle Console</p>
       <h1 className="display mt-5 max-w-lg text-[2.25rem] sm:text-[2.875rem]">
         Submit an <span className="display-accent">agent attestation.</span>

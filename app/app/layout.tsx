@@ -88,8 +88,9 @@ function AppHeader() {
   return (
     <header className="border-b border-rule">
       <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-6 px-6 py-6 sm:px-10">
-        <Link href="/" className="display text-[1.25rem] tracking-tight">
-          Veil
+        <Link href="/" className="flex items-center gap-2 display text-[1.25rem] tracking-tight">
+          <img src="/logo.png" alt="Veil Logo" className="w-9 h-9 object-contain" />
+          <span>Veil</span>
         </Link>
         <nav className="hidden items-center gap-8 text-[0.8125rem] text-ink-soft sm:flex">
           {NAV.map((item) => (
