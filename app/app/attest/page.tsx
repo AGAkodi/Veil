@@ -41,6 +41,7 @@ export default function AttestPage() {
   const [auditRunning, setAuditRunning] = useState(false);
   const [auditRationale, setAuditRationale] = useState<string | null>(null);
   const [auditSource, setAuditSource] = useState<"live" | "cache" | null>(null);
+  const [auditError, setAuditError] = useState<string | null>(null);
 
   // Step 2: Attest states
   const [submit, setSubmit] = useState<SubmitState>("idle");
@@ -73,6 +74,7 @@ export default function AttestPage() {
     setInputHash("");
     setAuditRationale(null);
     setAuditSource(null);
+    setAuditError(null);
     setResolutionError(null);
     setResolvedCode(null);
     setSubmit("idle");
@@ -87,6 +89,7 @@ export default function AttestPage() {
     setVerdict(ex.verdict);
     setAuditRationale(ex.rationale);
     setAuditSource("cache");
+    setAuditError(null);
     setSubmit("idle");
     setSubmitError(null);
     setOnchainTransactionId(null);
@@ -111,6 +114,7 @@ export default function AttestPage() {
     setResolutionError(null);
     setResolvedCode(null);
 
+    setAuditError(null);
     let codeToAudit = inputText.trim();
 
     // Auto-detect program ID or URL in raw paste mode, or explicitly set
@@ -175,7 +179,14 @@ export default function AttestPage() {
         body: JSON.stringify({ text: codeToAudit }),
       });
       if (!res.ok) {
-        throw new Error("Audit API returned an error status.");
+        let errText = "Audit API returned an error status.";
+        try {
+          const errData = await res.json();
+          if (errData.error) {
+            errText = errData.error;
+          }
+        } catch {}
+        throw new Error(errText);
       }
       const data = await res.json();
       setInputHash(data.hash);
@@ -183,13 +194,30 @@ export default function AttestPage() {
       setAuditRationale(data.rationale);
       setAuditSource(data.source);
     } catch (err: any) {
-      console.warn("[Audit] Failed live Groq call, using client fallback:", err);
-      // Robust client fallback
-      const hash = computeSimpleHash(codeToAudit);
-      setInputHash(hash);
-      setVerdict(true);
-      setAuditRationale("Local analysis completed successfully (Client-side fallback).");
-      setAuditSource("cache");
+      console.warn("[Audit] Failed live Groq call:", err);
+
+      let matchedFixture = null;
+      for (const key of Object.keys(ATTESTATION_EXAMPLES)) {
+        if (ATTESTATION_EXAMPLES[key].input === codeToAudit) {
+          matchedFixture = ATTESTATION_EXAMPLES[key];
+          break;
+        }
+      }
+
+      if (matchedFixture) {
+        console.log("[Audit] Matched demo fixture, using client-side cache fallback");
+        const hash = computeSimpleHash(codeToAudit);
+        setInputHash(hash);
+        setVerdict(matchedFixture.verdict);
+        setAuditRationale(matchedFixture.rationale);
+        setAuditSource("cache");
+      } else {
+        setAuditError(err.message || "Audit failed.");
+        setInputHash("");
+        setVerdict(true);
+        setAuditRationale(null);
+        setAuditSource(null);
+      }
     } finally {
       setAuditRunning(false);
     }
@@ -243,6 +271,7 @@ export default function AttestPage() {
     setVerdict(true);
     setAuditRationale(null);
     setAuditSource(null);
+    setAuditError(null);
     setSubmit("idle");
     setSubmitError(null);
     setOnchainTransactionId(null);
@@ -405,6 +434,12 @@ export default function AttestPage() {
             {resolutionError && (
               <div className="border border-accent bg-cream/50 p-4 text-[0.8125rem] text-accent font-semibold">
                 Error resolving program: {resolutionError}
+              </div>
+            )}
+
+            {auditError && (
+              <div className="border border-accent bg-cream/50 p-4 text-[0.8125rem] text-accent font-semibold">
+                Audit Error: {auditError}
               </div>
             )}
 
