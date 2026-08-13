@@ -232,9 +232,29 @@ export default function AttestPage() {
     setSubmit("building"); // Proof generation and broadcast pending
 
     try {
-      const res = await fetch("/api/attest", {
+      // Attestation is served by a standalone Node service, not by a Next.js
+      // route: generating the proof needs a real filesystem, ~66 MB of proving
+      // keys, and more wall-clock time than a serverless function gets.
+      const serviceUrl = process.env.NEXT_PUBLIC_ATTEST_SERVICE_URL;
+      if (!serviceUrl) {
+        throw new Error(
+          "Attest service URL is not configured. Set NEXT_PUBLIC_ATTEST_SERVICE_URL to the deployed attest service."
+        );
+      }
+
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      // Note: this travels to the browser, so it is not a real secret. It keeps
+      // casual callers off the endpoint; the service's rate limiter is what
+      // actually protects the oracle's fee balance.
+      if (process.env.NEXT_PUBLIC_ATTEST_SHARED_SECRET) {
+        headers["X-Attest-Secret"] = process.env.NEXT_PUBLIC_ATTEST_SHARED_SECRET;
+      }
+
+      const res = await fetch(`${serviceUrl.replace(/\/$/, "")}/attest`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           owner: owner.trim(),
           inputHash: inputHash.trim(),
@@ -243,7 +263,7 @@ export default function AttestPage() {
       });
 
       if (!res.ok) {
-        const errData = await res.json();
+        const errData = await res.json().catch(() => ({}));
         throw new Error(errData.error || "On-chain attestation submission failed.");
       }
 

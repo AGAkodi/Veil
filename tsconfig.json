@@ -30,5 +30,10 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  // services/ is a separate Node app with its own tsconfig (module: NodeNext).
+  // Type-checking it here applies this config's bundler/DOM resolution, under
+  // which @provablehq/sdk resolves to its browser target and LocalFileKeyStore
+  // appears not to exist — the same ambiguity that forced a ts-expect-error in
+  // the old serverless route.
+  "exclude": ["node_modules", "services"]
 }

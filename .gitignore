@@ -41,7 +41,19 @@ program/build/
 program/outputs/
 *.prover
 *.verifier
-!/keys/**
+
+# ...except the attest service's proving keys, which must ship with it.
+# These are the 66 MB artifacts the deploy actually needs at runtime.
+!/services/attest-service/keys/**
+
+# The attest service needs the compiled bytecode at runtime, and program/build/
+# above is ignored. Its copy under services/ is tracked on purpose — a missing
+# bytecode file is what broke the serverless deploy in the first place.
+!/services/attest-service/program/*.aleo
+
+# attest service build output
+/services/attest-service/dist/
+/services/attest-service/node_modules/
 
 # vercel
 .vercel

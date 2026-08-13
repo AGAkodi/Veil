@@ -1,0 +1,26 @@
+{
+  "name": "veil-attest-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Oracle-signed attestation submission for veil_attest_v2.aleo. Runs as a persistent Node process because ZK proving does not fit a serverless function.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch --preserveWatchOutput & node --watch dist/index.js"
+  },
+  "dependencies": {
+    "@provablehq/sdk": "^0.11.6",
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20",
+    "typescript": "^5"
+  }
+}
