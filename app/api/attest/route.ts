@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { Account, AleoNetworkClient, AleoKeyProvider, NetworkRecordProvider, ProgramManager, LocalFileKeyStore } from "@provablehq/sdk";
+import { Account, AleoNetworkClient, AleoKeyProvider, NetworkRecordProvider, ProgramManager } from "@provablehq/sdk";
+// @ts-expect-error - LocalFileKeyStore is exported in the Node.js target of @provablehq/sdk, but the module is resolved with browser types in the Next.js compilation step.
+import { LocalFileKeyStore } from "@provablehq/sdk";
 import { ALEO_ADDRESS_PATTERN } from "../../lib/attestation";
 import fs from "fs";
 import path from "path";
