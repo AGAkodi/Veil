@@ -177,7 +177,7 @@ export function describeWalletError(err: unknown): string {
 
 export async function fetchMappingValue(mappingName: string, key: string): Promise<number> {
   const endpoint = process.env.NEXT_PUBLIC_ALEO_ENDPOINT || "https://api.explorer.provable.com/v1";
-  const programId = process.env.NEXT_PUBLIC_PROGRAM_ID || "veil_attest.aleo";
+  const programId = process.env.NEXT_PUBLIC_PROGRAM_ID || "veil_attest_v2.aleo";
   const url = `${endpoint}/testnet/program/${programId}/mapping/${mappingName}/${key}`;
   try {
     const res = await fetch(url);

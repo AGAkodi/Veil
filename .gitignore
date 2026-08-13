@@ -41,6 +41,7 @@ program/build/
 program/outputs/
 *.prover
 *.verifier
+!/keys/**
 
 # vercel
 .vercel

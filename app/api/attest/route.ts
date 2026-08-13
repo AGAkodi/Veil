@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { exec } from "child_process";
-import path from "path";
+import { Account, AleoNetworkClient, AleoKeyProvider, NetworkRecordProvider, ProgramManager, LocalFileKeyStore } from "@provablehq/sdk";
 import { ALEO_ADDRESS_PATTERN } from "../../lib/attestation";
+import fs from "fs";
+import path from "path";
 
 // In-memory rate limiting map (IP -> { count, resetTime })
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
@@ -36,6 +37,8 @@ export async function POST(request: Request) {
     );
   }
 
+  let account: Account | null = null;
+
   try {
     const body = await request.json();
     const { owner, inputHash, verdict } = body;
@@ -56,71 +59,73 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Oracle private key is not configured on the server." }, { status: 500 });
     }
 
-    // 3. Child process setup
-    const leoPath = "C:\\Users\\User\\.cargo\\bin\\leo.exe";
-    const programDir = path.resolve(process.cwd(), "program");
-    const cmd = `"${leoPath}" execute --network testnet --endpoint https://api.explorer.provable.com/v1 --broadcast --yes submit_attestation ${owner.trim()} ${inputHash.trim()} ${verdict}`;
+    console.log(`[Attest API] Initializing Aleo SDK ProgramManager for ${owner.trim()} on testnet...`);
 
-    console.log(`[Attest API] Launching execution for ${owner.trim()} on testnet...`);
+    const endpoint = process.env.ALEO_ENDPOINT || "https://api.explorer.provable.com/v1";
+    const programId = process.env.PROGRAM_ID || "veil_attest_v2.aleo";
 
-    const env = {
-      ...process.env,
-      PRIVATE_KEY: privateKey,
-    };
+    // Read local compiled program bytecode
+    const programPath = path.resolve(process.cwd(), "program/build/veil_attest_v2/veil_attest_v2.aleo");
+    const programSource = fs.readFileSync(programPath, "utf-8");
 
-    return new Promise<NextResponse>((resolve) => {
-      // 5-minute timeout for proof generation and network broadcast confirmation
-      exec(cmd, { cwd: programDir, env, timeout: 300000 }, (error, stdout, stderr) => {
-        if (error) {
-          console.error("[Attest API] Child process execution error:", error);
-          console.error("[Attest API] Stderr:", stderr);
+    // 3. Initialize Aleo SDK components
+    account = new Account({ privateKey });
+    const networkClient = new AleoNetworkClient(endpoint);
+    const keyProvider = new AleoKeyProvider();
+    keyProvider.useCache(true);
+    const keyStore = new LocalFileKeyStore(path.resolve(process.cwd(), "keys"));
+    const recordProvider = new NetworkRecordProvider(account, networkClient);
+    const programManager = new ProgramManager(endpoint, keyProvider, recordProvider);
+    programManager.setAccount(account);
+    programManager.setKeyStore(keyStore);
 
-          // Parse known error reasons to return clean messages
-          let errorMsg = "Zero-knowledge proof execution failed.";
-          if (stderr.includes("InsufficientFee")) {
-            errorMsg = "Server oracle has insufficient credit balance to pay transaction fees.";
-          } else if (stderr.includes("mempool") || stderr.includes("rejected")) {
-            errorMsg = "Transaction was rejected by the network mempool.";
-          } else if (stderr.includes("timeout") || error.message.includes("timeout")) {
-            errorMsg = "Network timeout while broadcasting execution.";
-          }
+    console.log(`[Attest API] Launching execution for ${owner.trim()} on testnet via SDK...`);
 
-          resolve(
-            NextResponse.json(
-              { error: errorMsg, details: stderr.trim() || error.message },
-              { status: 500 }
-            )
-          );
-          return;
-        }
+    const txId = await programManager.execute({
+      programName: programId,
+      functionName: "submit_attestation",
+      program: programSource,
+      priorityFee: 0.0035, // 3,500 microcredits public execution fee
+      privateFee: false, // public fee
+      inputs: [owner.trim(), inputHash.trim(), String(verdict)],
+      privateKey: account.privateKey(),
+    });
 
-        // 4. Parse transaction ID
-        const txMatch = stdout.match(/transaction ID:\s+'(at1[a-z0-9]+)'/i);
-        const txId = txMatch ? txMatch[1] : null;
+    console.log(`[Attest API] Transaction broadcast confirmed: ${txId}`);
 
-        if (!txId) {
-          console.error("[Attest API] Transaction broadcasted but ID was not parsed from stdout:", stdout);
-          resolve(
-            NextResponse.json(
-              { error: "Attestation broadcasted but transaction ID could not be resolved from output." },
-              { status: 500 }
-            )
-          );
-          return;
-        }
+    // Securely destroy sensitive key material
+    account.destroy();
+    account = null;
 
-        console.log(`[Attest API] Transaction broadcast confirmed: ${txId}`);
-        resolve(
-          NextResponse.json({
-            success: true,
-            transactionId: txId,
-            status: "accepted",
-          })
-        );
-      });
+    return NextResponse.json({
+      success: true,
+      transactionId: txId,
+      status: "accepted",
     });
   } catch (err: any) {
     console.error("[Attest API] Request error:", err);
-    return NextResponse.json({ error: err?.message || "Internal server error" }, { status: 500 });
+
+    if (account) {
+      try {
+        account.destroy();
+      } catch (destroyErr) {
+        console.error("[Attest API] Error destroying account in catch block:", destroyErr);
+      }
+    }
+
+    const message = err?.message || String(err);
+    let errorMsg = "Zero-knowledge proof execution failed.";
+    if (message.includes("InsufficientFee") || message.includes("insufficient credit balance")) {
+      errorMsg = "Server oracle has insufficient credit balance to pay transaction fees.";
+    } else if (message.includes("mempool") || message.includes("rejected")) {
+      errorMsg = "Transaction was rejected by the network mempool.";
+    } else if (message.includes("timeout")) {
+      errorMsg = "Network timeout while broadcasting execution.";
+    }
+
+    return NextResponse.json(
+      { error: errorMsg, details: message },
+      { status: 500 }
+    );
   }
 }
