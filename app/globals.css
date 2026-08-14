@@ -112,6 +112,9 @@ body {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 0.875rem;
   letter-spacing: -0.01em;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .field-label {

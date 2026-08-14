@@ -81,6 +81,9 @@ export default function VerifyPage() {
           }));
         setRecords(parsed);
         setSelectedIndex(0);
+        if (parsed.length > 0 && parsed[0].hash) {
+          setClaimedHash(parsed[0].hash);
+        }
       })
       .catch((err) => {
         if (cancelled) return;
@@ -151,6 +154,8 @@ export default function VerifyPage() {
     }
   }
 
+  const isRealTxId = (id: string | null) => !!id && id.startsWith("at1");
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!canSubmit) return;
@@ -174,16 +179,24 @@ export default function VerifyPage() {
       const tx = buildVerifyAttestationTransaction(recordInput, claimedHash.trim());
 
       setSubmit("broadcasting");
+      console.log("[Verify] Initiating wallet executeTransaction with tx parameters:", tx);
       const result = await executeTransaction(tx);
+      console.log("[Verify] executeTransaction raw result response:", result);
       const tempId = result?.transactionId ?? null;
       setTempTransactionId(tempId);
       if (!tempId) throw new Error("Wallet did not return a transaction id.");
 
+      console.log("[Verify] Starting transaction status polling for request ref ID:", tempId);
       const polled = await pollTransactionStatus(transactionStatus, tempId);
+      console.log("[Verify] pollTransactionStatus raw result response:", polled);
       setFinalStatus(polled.status);
       setOnchainTransactionId(polled.transactionId ?? null);
-      setSubmit(isFailedStatus(polled.status) ? "failed" : "confirmed");
+      
+      const failed = isFailedStatus(polled.status);
+      console.log("[Verify] Final transaction execution check:", { status: polled.status, failed });
+      setSubmit(failed ? "failed" : "confirmed");
     } catch (err) {
+      console.error("[Verify] Transaction execution failed with error:", err);
       setSubmitError(describeWalletError(err));
       setSubmit("idle");
     }
@@ -257,14 +270,19 @@ export default function VerifyPage() {
                     type="radio"
                     name="record"
                     checked={selectedIndex === i}
-                    onChange={() => setSelectedIndex(i)}
+                    onChange={() => {
+                      setSelectedIndex(i);
+                      if (r.hash) {
+                        setClaimedHash(r.hash);
+                      }
+                    }}
                     className="mt-0.5"
                   />
                   <div className="field-mono">
                     <p className="font-semibold text-ink">
                       Record {i + 1} ({r.verdict === true ? "Pass/Clean" : r.verdict === false ? "Fail/Vulnerable" : "Verdict Unknown"})
                     </p>
-                    <p className="text-xs text-ink-soft truncate max-w-xs">
+                    <p className="text-xs text-ink-soft">
                       commitment: {r.hash || "unknown"}
                     </p>
                   </div>
@@ -274,7 +292,15 @@ export default function VerifyPage() {
           )}
           <button
             type="button"
-            onClick={() => setUseManualRecord((v) => !v)}
+            onClick={() => {
+              setUseManualRecord((v) => {
+                const nextVal = !v;
+                if (!nextVal && records && records[selectedIndex]) {
+                  setClaimedHash(records[selectedIndex].hash || "");
+                }
+                return nextVal;
+              });
+            }}
             className="mt-3 text-[0.75rem] font-semibold text-ink-soft hover:text-ink"
           >
             {useManualRecord ? "Use wallet records instead" : "Paste record plaintext manually"}
@@ -385,7 +411,7 @@ export default function VerifyPage() {
               <ol className="space-y-3 text-[0.8125rem]">
                 <li className="flex items-center gap-2 text-ink">
                   <span className="dot dot-ok" />
-                  Local comparison complete
+                  Local comparison complete ({verificationResult === "matched" ? "Matched" : "Mismatched"})
                 </li>
                 <li className="flex items-center gap-2 text-ink">
                   {submit === "building" ? (
@@ -434,7 +460,7 @@ export default function VerifyPage() {
                         </>
                       ) : (
                         <>
-                          Wallet transaction id:{" "}
+                          {isRealTxId(tempTransactionId) ? "Wallet transaction id: " : "Wallet request reference: "}
                           <span className="field-mono text-xs">{tempTransactionId}</span>
                           . Still waiting on the on-chain id to finalize.
                         </>
@@ -450,6 +476,14 @@ export default function VerifyPage() {
                   )}
                 </li>
               </ol>
+              {verificationResult === "mismatched" && (
+                <div className="mt-4 text-xs text-ink-soft border border-rule bg-cream/40 p-2.5">
+                  <p className="font-semibold text-accent">Mismatch / Forged Hash Scenario</p>
+                  <p className="mt-1 leading-relaxed">
+                    Submitting this verification on-chain is permitted. Under the Leo contract design, a mismatch does not cause a transaction abort; instead, the transaction executes successfully on-chain and outputs a public matches verdict of <code>false</code>.
+                  </p>
+                </div>
+              )}
               {(submit === "demo-done" ||
                 submit === "confirmed" ||
                 submit === "failed") && (

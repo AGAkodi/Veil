@@ -135,14 +135,21 @@ export async function pollTransactionStatus(
   let last: TransactionStatusResponse = { status: TransactionStatus.PENDING };
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     last = await transactionStatus(transactionId);
-    if (last.status !== TransactionStatus.PENDING) return last;
+    const currentStatus = String(last.status || "").toLowerCase();
+    if (currentStatus !== "pending") return last;
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
   return { ...last, status: "timeout" };
 }
 
 export function isFailedStatus(status: string) {
-  return status === TransactionStatus.FAILED || status === TransactionStatus.REJECTED;
+  const s = String(status || "").toLowerCase();
+  return (
+    s === "failed" ||
+    s === "rejected" ||
+    status === TransactionStatus.FAILED ||
+    status === TransactionStatus.REJECTED
+  );
 }
 
 const FRIENDLY_ERRORS: Array<[string, string]> = [
