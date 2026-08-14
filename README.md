@@ -110,6 +110,16 @@ GitHub URL resolution	Built and hardened (timeout, size cap, content-type check)
 verify_attestation	Built, unaffected by later changes in design — needs one more end-to-end regression check after all recent audit/attest changes
 Public stats strip (total_attestations/total_flagged)	Built — confirm trigger point still fires correctly after the two-step flow changes
 "Not yet on-chain" label bug	Was identified as showing a stale state after confirmed attestations — confirm this was fixed, not assumed
+Testing verification yourself
+
+The "Disclosure Rights Holder (Owner Address)" field on /attest defaults to the oracle's own address. If you attest with that default left in place, only the oracle's wallet will ever be able to see or verify that record — this isn't a bug, it's the same privacy mechanism working correctly. An attestation record is only visible to whichever address is set as its owner; nobody else can see or verify it unless that owner discloses it.
+
+To test verification as a wallet other than the oracle's:
+
+On /attest, before submitting, clear the owner field and enter your own wallet address instead of the oracle's default.
+Run the audit and attest as normal — the resulting record will be owned by your address, not the oracle's.
+On /verify, connect that same wallet — the attestation should now appear as one you hold.
+To demonstrate real third-party disclosure (the intended use case): copy that record's raw plaintext and hand it to a different wallet. That second wallet can verify it via "Paste record plaintext manually," with no oracle involvement at all — proving the verdict is genuine without ever needing to be, or trust, the oracle directly.
 Who this is for
 
 Compliance vendors, AI infrastructure providers, and DAOs needing auditable moderation are the natural early users of a primitive like this — anywhere a verdict needs to be trusted by a third party without that party (or the public chain) ever seeing the underlying data. The oracle-gated attestation model is meant to be a primitive other builders plug into, not a closed application.
