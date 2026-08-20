@@ -37,7 +37,7 @@ export const ATTESTATION_EXAMPLES: Record<string, AttestationFixture> = {
     verdict: true,
     label: "Medical Scan (Clean)",
     note: "Attestation submitted live on testnet — see the transaction below.",
-    rationale: "Llama-3.3-70B: No suspicious masses or malignancy indicators detected; the scanned tissue is benign. Mixtral-8x7B: Scan confirms healthy, benign tissue structure with no signs of malignant growth.",
+    rationale: "Qwen-3.6-27B: No suspicious masses or malignancy indicators detected; the scanned tissue is benign. GPT-OSS-120B: Scan confirms healthy, benign tissue structure with no signs of malignant growth.",
     txId: "at1hvnzhlp6jusps3f2k4aynmqem8umdgndg0ng98n5g6qg0s7fmugq39y85g",
   },
   security: {
@@ -46,7 +46,7 @@ export const ATTESTATION_EXAMPLES: Record<string, AttestationFixture> = {
     verdict: false,
     label: "Code Security (Vulnerable)",
     note: "Vulnerability detected. Submission rejected or marked false to alert verifiers.",
-    rationale: "Llama-3.3-70B: SQL injection vulnerability detected in database interaction at line 45. Mixtral-8x7B: Vulnerability confirmed: SQL injection path allows database query execution.",
+    rationale: "Qwen-3.6-27B: SQL injection vulnerability detected in database interaction at line 45. GPT-OSS-120B: Vulnerability confirmed: SQL injection path allows database query execution.",
   },
   credit: {
     input: "Corporate credit risk evaluation: low debt ratio, stable cash flow, rating AA.",
@@ -54,7 +54,7 @@ export const ATTESTATION_EXAMPLES: Record<string, AttestationFixture> = {
     verdict: true,
     label: "Credit Risk (Stable)",
     note: "Credit evaluation completed successfully. High reliability indicators verified.",
-    rationale: "Llama-3.3-70B: Low leverage combined with strong, predictable cash flow yields an AA rating. Mixtral-8x7B: Financial metrics show stable cash flows and excellent debt service capabilities.",
+    rationale: "Qwen-3.6-27B: Low leverage combined with strong, predictable cash flow yields an AA rating. GPT-OSS-120B: Financial metrics show stable cash flows and excellent debt service capabilities.",
   },
   moderation: {
     input: "Social media content review: hate speech detected in user post #882.",
@@ -62,7 +62,7 @@ export const ATTESTATION_EXAMPLES: Record<string, AttestationFixture> = {
     verdict: false,
     label: "Content Moderation (Flagged)",
     note: "Hate speech policy violation flagged. Review queued for moderation action.",
-    rationale: "Llama-3.3-70B: Hate speech detected in user post #882. Mixtral-8x7B: Content contains policy-violating hate speech and requires moderation.",
+    rationale: "Qwen-3.6-27B: Hate speech detected in user post #882. GPT-OSS-120B: Content contains policy-violating hate speech and requires moderation.",
   },
 };
 

@@ -61,7 +61,7 @@ submit_attestation requires the caller to be one specific, hardcoded oracle addr
 
 The audit engine
 
-The audit step uses two independent language models on Groq — Llama 3.3-70B and GPT-OSS-120B — run in parallel at temperature 0. Findings are only reported with confidence when both models corroborate each other; disagreement is a signal, not something silently resolved by picking one answer.
+The audit step uses two independent language models on Groq — Qwen 3.6-27B and GPT-OSS-120B — run in parallel at temperature 0. Findings are only reported with confidence when both models corroborate each other; disagreement is a signal, not something silently resolved by picking one answer.
 
 If a live call fails or times out, a small set of demo fixtures fall back to a precomputed, real (not fabricated) cached response. For any other input, a failed live call returns an explicit error — it never fabricates a "clean" verdict. An audit tool that fails safe by defaulting to "pass" is worse than one that just fails visibly, and Veil is built to do the latter.
 

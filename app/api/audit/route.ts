@@ -55,13 +55,12 @@ export async function POST(request: Request) {
             {
               role: "system",
               content:
-                "You are a strict security and compliance audit assistant. Analyze the given text and determine if it is clean/approved (verdict = true) or if it has a vulnerability, risk, threat, policy violation, or issue (verdict = false).\n\n" +
-                "This code may target Aleo's snarkVM instruction set (Leo/Aleo bytecode), not Solidity or EVM bytecode. If so, apply these VM-specific facts and do not flag issues that don't apply here:\n" +
-                "- Plain arithmetic instructions (add, sub, mul) on unsigned integers are checked by default and halt the entire transaction on overflow/underflow. Only explicit .w-suffixed variants (e.g. sub.w, add.w) perform unchecked/wrapping arithmetic. Do not flag \"missing balance check before subtraction\" unless a .w variant is actually used, or unless you can point to a specific value that could legitimately exceed the operand and still bypass the halt (e.g. via a cast or an assert that's satisfiable with mismatched values).\n" +
-                "- There is no reentrancy risk in this execution model. Transitions execute, then an associated finalize block runs afterward, atomically, against public state — there is no mid-execution external call that can call back into the same program. Do not flag reentrancy unless there is an actual cross-program call (a call to another program's transition) combined with state changes happening after that call, not before it.\n" +
-                "- Do not import general \"smart contract security checklist\" patterns (checks-effects-interactions, common Solidity CVE categories) unless you can show the specific mechanism that makes them apply to this VM's actual execution semantics.\n" +
-                "- Before flagging any authorization issue in a finalize block, trace where each finalize input actually comes from. Find the matching `async <function_name> arg1 arg2 ...` call in the transition function that produced it — the arguments there map positionally to the finalize block's `input r0, input r1, ...` declarations, in the same order. If an argument passed to `async` is `self.caller` or `self.signer`, that finalize input is fixed to the transaction sender and cannot be spoofed by the caller, even though it's declared as `address.public`. Do not flag an authorization issue on such an input. Only flag a missing-authorization issue if the finalize input in question is populated from a value the caller could freely choose — for example, an address passed directly from one of the transition's own `input` parameters (not `self.caller`/`self.signer`) with no ownership check performed on it before it's used to read or modify that address's state.\n\n" +
-                "You must output your response in strict JSON containing only keys 'verdict' (boolean) and 'rationale' (string, max 2 sentences).",
+                "You are a strict security and compliance audit assistant. Analyze the given Aleo/Leo bytecode/code and output a JSON object containing keys 'verdict' (boolean) and 'rationale' (string, max 2 sentences).\n\n" +
+                "CRITICAL: Apply these snarkVM facts to avoid false positives:\n" +
+                "1. POSITION-BASED MAPPING: Variable registers (r0, r1, r2...) in transitions and finalize blocks do NOT share scope/values. In finalize, variables map strictly by position from the transition's async call (1st arg -> 1st finalize input, etc.), NOT by name. If a transition calls 'async foo self.caller r0 r1' and finalize declares 'input r0, input r1, input r2', then r0 in finalize is fixed to self.caller. Do not flag transfer_public/transfer_public_as_signer as unauthorized; their senders are fixed positionally to self.caller/self.signer.\n" +
+                "2. PUBLIC CLAIM CRANKS: Helper transitions (like claim_unbond_public) that claim/finalize actions for an address without checking self.caller are completely secure, provided the destination of funds is fixed to that address's pre-configured withdraw address and cannot be redirected by the caller.\n" +
+                "3. CHECKED ARITHMETIC: Plain add, sub, mul halt on overflow/underflow. Only .w-suffixed instructions wrap. Do not flag missing balance checks.\n" +
+                "4. NO REENTRANCY: Transition and finalize run atomically. There are no mid-execution external calls. Reentrancy is impossible.",
             },
             {
               role: "user",
@@ -70,6 +69,7 @@ export async function POST(request: Request) {
           ],
           temperature: 0.0,
           response_format: { type: "json_object" },
+          ...(modelName.includes("qwen") ? { reasoning_effort: "none" } : {})
         }),
         signal: controller.signal,
       });
@@ -110,7 +110,7 @@ export async function POST(request: Request) {
 
     try {
       const results = await Promise.allSettled([
-        callCritic("llama-3.3-70b-versatile", "Llama-3.3-70B"),
+        callCritic("qwen/qwen3.6-27b", "Qwen-3.6-27B"),
         callCritic("openai/gpt-oss-120b", "GPT-OSS-120B"),
       ]);
 
@@ -123,7 +123,7 @@ export async function POST(request: Request) {
       const successB = criticB.status === "fulfilled" ? criticB.value : null;
 
       if (criticA.status === "rejected") {
-        console.error("[Audit API] Critic Llama-3.3-70B failed:", criticA.reason?.message || criticA.reason);
+        console.error("[Audit API] Critic Qwen-3.6-27B failed:", criticA.reason?.message || criticA.reason);
       }
       if (criticB.status === "rejected") {
         console.error("[Audit API] Critic GPT-OSS-120B failed:", criticB.reason?.message || criticB.reason);
@@ -159,9 +159,9 @@ export async function POST(request: Request) {
         // Custom input: we must NOT fabricate a verdict or fall back to single critic (violating corroboration)
         const errA = criticA.status === "rejected" ? (criticA.reason?.message || String(criticA.reason)) : "Succeeded";
         const errB = criticB.status === "rejected" ? (criticB.reason?.message || String(criticB.reason)) : "Succeeded";
-        console.error(`[Audit API] Cascade failed on custom input. Llama: ${errA}; GPT-OSS: ${errB}`);
+        console.error(`[Audit API] Cascade failed on custom input. Qwen: ${errA}; GPT-OSS: ${errB}`);
         return NextResponse.json(
-          { error: `Live Groq audit failed. Critic Llama: ${errA}; Critic GPT-OSS: ${errB}` },
+          { error: `Live Groq audit failed. Critic Qwen: ${errA}; Critic GPT-OSS: ${errB}` },
           { status: 502 }
         );
       }
